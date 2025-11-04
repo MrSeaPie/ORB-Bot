@@ -1,0 +1,22 @@
+orb:
+  or_start: "09:30"
+  or_end:   "09:35"
+  trade_start: "09:40"
+  trade_end:   "10:45"
+  hard_flatten: "11:05"
+
+  # keep these as they were (fine):
+  max_vwap_dist_atr: 0.45
+  breakout_vol_mult: 1.2
+  ema_len_fast: 9
+  ema_len_slow: 20
+
+  # 🔓 loosen ONLY the base gates
+  base_near_vwap_atr: 1.20   # was 0.30
+  base_tight_frac:   3.00    # was 0.80
+
+  # stops / sizing unchanged
+  stop_buf_vwap_atr: 0.10
+  stop_buf_base_atr: 0.15
+  min_stop_atr:      0.80
+  risk_dollars:      100.0
