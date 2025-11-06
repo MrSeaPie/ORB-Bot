@@ -1,29 +1,43 @@
-# ORB windows
+# ORB Configuration - LOOSENED GATES
+
+# Time Windows
 or_start: "09:30"
-or_end:   "09:32"
-base_start: "09:33"
-base_end:   "09:39"
-trade_start: "09:40"
-trade_end:   "10:45"
-hard_flatten: "11:05"
+or_end:   "09:35"
+base_start: "09:35"
+base_end:   "09:45"
+trade_start: "09:45"
+trade_end:   "15:30"
+hard_flatten: "15:55"
 
-# DEBUG: force gates to pass so we can see entries
-base_near_vwap_atr: 50.0     # huge tolerance so base VWAP gate passes
-base_tight_frac:    10.0     # very loose base tightness vs OR
-or_width_min_atr:   0.0      # off
-or_width_max_atr:   0.0      # off
-
-# Breakout VWAP/volume clamps (OFF for now)
-max_vwap_dist_atr:  0.0      # off
-breakout_vol_mult:  0.0      # off
-
-# EMAs (computed but not gating yet)
+# ATR and EMA settings
+atr_length: 14
 ema_len_fast: 9
 ema_len_slow: 20
 
-# Risk placeholders
+# === LOOSENED GATES ===
+
+# Base near VWAP gate - LOOSENED from 0.3 to 0.8
+base_near_vwap_atr: 0.8
+
+# Base tightness gate - LOOSENED from 0.6 to 1.5 (allow base to be 1.5x OR)
+base_tight_frac: 1.5
+
+# OR width gates - WIDENED from 3.0 to 5.0
+or_width_min_atr: 0.2
+or_width_max_atr: 5.0
+
+# Breakout volume gate - Turn OFF for now
+breakout_vol_mult: 0
+
+# Risk management
 stop_buf_vwap_atr: 0.10
 stop_buf_base_atr: 0.15
-min_stop_atr:      0.80
-atr_length:        14
-risk_dollars:      100.0
+min_stop_atr: 0.80
+risk_dollars: 100.0
+max_vwap_dist_atr: 0.45
+
+# Risk Management Settings
+risk_dollars: 250.0       # $ to risk per trade
+target_r1: 2.0           # First target (sell half)
+target_r2: 3.0           # Second target (sell rest)
+vwap_stop_buffer_atr: 0.10  # VWAP stop buffer
