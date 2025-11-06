@@ -1,15 +1,50 @@
-import pandas as pd, yfinance as yf
+# engine/feed_yf.py
+import pandas as pd
+import yfinance as yf
 
-def load_5m(sym: str, period="30d", tz="America/New_York") -> pd.DataFrame:
-    df = yf.download(sym, period=period, interval="5m", progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
+def fetch_history(symbol: str, days: int = 60) -> pd.DataFrame:
+    """
+    Always return intraday data when days <= 60.
+    Yahoo rules (practical):
+      - 1m: ~7 days max
+      - 5m: ~60 days max
+      - >=60d: fall back to 30m
+    """
+    if days <= 7:
+        interval = "1m"
+    elif days <= 60:
+        interval = "5m"
+    else:
+        interval = "30m"
+
+    df = yf.download(
+        tickers=symbol,
+        period=f"{days}d",
+        interval=interval,
+        auto_adjust=False,
+        prepost=False,      # RTH only
+        progress=False,
+        threads=True,
+    )
+
+    # Make sure we get a DatetimeIndex and lower-case OHLCV cols
+    if df is None or len(df) == 0:
+        return pd.DataFrame()
+
+    if not isinstance(df.index, pd.DatetimeIndex):
         try:
-            df = df.xs(sym, axis=1, level=1, drop_level=True)
+            df.index = pd.to_datetime(df.index)
         except Exception:
-            df = df.droplevel(-1, axis=1)
-    df = df.rename(columns=lambda c: str(c).lower())
-    df = df[["open","high","low","close","volume"]].dropna()
-    df.index = (df.index.tz_localize("UTC").tz_convert(tz)
-                if df.index.tz is None else df.index.tz_convert(tz))
-    df["date"] = df.index.date
+            return pd.DataFrame()
+
+    # Normalize column names
+    rename_map = {c: c.lower() for c in df.columns}
+    df = df.rename(columns=rename_map)
+
+    # Keep only expected columns if present
+    cols = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+    df = df[cols]
+
+    # Drop days with no RTH (rare)
+    df = df.sort_index()
     return df

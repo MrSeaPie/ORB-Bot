@@ -1,22 +1,29 @@
-orb:
-  or_start: "09:30"
-  or_end:   "09:35"
-  trade_start: "09:40"
-  trade_end:   "10:45"
-  hard_flatten: "11:05"
+# ORB windows
+or_start: "09:30"
+or_end:   "09:32"
+base_start: "09:33"
+base_end:   "09:39"
+trade_start: "09:40"
+trade_end:   "10:45"
+hard_flatten: "11:05"
 
-  # keep these as they were (fine):
-  max_vwap_dist_atr: 0.45
-  breakout_vol_mult: 1.2
-  ema_len_fast: 9
-  ema_len_slow: 20
+# DEBUG: force gates to pass so we can see entries
+base_near_vwap_atr: 50.0     # huge tolerance so base VWAP gate passes
+base_tight_frac:    10.0     # very loose base tightness vs OR
+or_width_min_atr:   0.0      # off
+or_width_max_atr:   0.0      # off
 
-  # 🔓 loosen ONLY the base gates
-  base_near_vwap_atr: 1.20   # was 0.30
-  base_tight_frac:   3.00    # was 0.80
+# Breakout VWAP/volume clamps (OFF for now)
+max_vwap_dist_atr:  0.0      # off
+breakout_vol_mult:  0.0      # off
 
-  # stops / sizing unchanged
-  stop_buf_vwap_atr: 0.10
-  stop_buf_base_atr: 0.15
-  min_stop_atr:      0.80
-  risk_dollars:      100.0
+# EMAs (computed but not gating yet)
+ema_len_fast: 9
+ema_len_slow: 20
+
+# Risk placeholders
+stop_buf_vwap_atr: 0.10
+stop_buf_base_atr: 0.15
+min_stop_atr:      0.80
+atr_length:        14
+risk_dollars:      100.0
