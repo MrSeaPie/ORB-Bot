@@ -1,14 +1,17 @@
-# HOW TO RUN YOUR BACKTEST WITH THE NEW FRAMEWORK
+# ============================================================================
+# RUN FRAMEWORK - TESTING GAP-UP STOCKS
+# ============================================================================
 
 import pandas as pd
 import yfinance as yf
 from framework import ORBStrategy, ORBConfig, TradeLogger, PerformanceAnalyzer
+from scanner import get_historical_gappers  # ← MAKE SURE THIS IS HERE!
 
 
-def fetch_bars(symbol: str, period: str = "60d", interval: str = "5m") -> pd.DataFrame:
+def fetch_bars(symbol: str, period: str = "60d", interval: str = "5m"):
     """Download stock data"""
     print(f"📥 Downloading {symbol}...")
-    df = yf.download(symbol, period=period, interval=interval, progress=False)
+    df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
     if df.empty:
         return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
@@ -23,44 +26,44 @@ def fetch_bars(symbol: str, period: str = "60d", interval: str = "5m") -> pd.Dat
     return df
 
 
-# ==============================================================================
-# CONFIGURE YOUR STRATEGY HERE (Change these numbers to tune!)
-# ==============================================================================
+# Strategy config
 cfg = ORBConfig(
-    # Time windows
     or_start="09:30",
     or_end="09:35",
     base_start="09:35",
     base_end="09:45",
-    trade_start="09:45",      # ⚠️ Try 09:40 to enter earlier!
+    trade_start="09:45",
     trade_end="15:30",
-    
-    # Gates (set to 0 to turn OFF)
-    base_near_vwap_atr=0,   # ⚠️ Try 0.3 for tighter!
-    base_tight_frac=0,      # ⚠️ Try 0.8 for tighter!
+    base_near_vwap_atr=1.0,
+    base_tight_frac=0.5,
     or_width_min_atr=0,
     or_width_max_atr=0,
     breakout_vol_mult=0,
-    
-    # Risk management
     risk_dollars=250.0,
     target_r1=2.0,
     target_r2=3.0,
-    vwap_stop_buffer_atr=0.10,  # ⚠️ Try 0.20 for wider stop!
+    vwap_stop_buffer_atr=0.10,
 )
 
-# Create strategy
 logger = TradeLogger(log_dir="logs/trades")
 strategy = ORBStrategy(config=cfg, logger=logger)
 
-# Your watchlist
-WATCHLIST = ["AAPL", "NVDA", "TSLA", "AMD", "META", "MSFT"]
+# ============================================================================
+# 🎯 CRITICAL: USE SCANNER HERE!
+# ============================================================================
+
+# OLD (WRONG):
+# WATCHLIST = ["AAPL", "NVDA", "TSLA", "AMD", "META", "MSFT"]
+
+# NEW (RIGHT):
+WATCHLIST = get_historical_gappers()  # ← THIS CALLS THE SCANNER!
+
+# ============================================================================
 
 print("\n" + "="*70)
 print("🚀 STARTING BACKTEST")
 print("="*70)
 
-# Run backtest on each stock
 for symbol in WATCHLIST:
     print(f"\n{'='*70}")
     print(f"Testing {symbol}...")
@@ -78,14 +81,12 @@ for symbol in WATCHLIST:
     print(f"  Profit Factor: {results['profit_factor']:.2f}")
     print(f"  Total PnL: ${results['total_pnl']:.2f}")
 
-# Save trades
 print("\n" + "="*70)
 print("💾 SAVING TRADES...")
 print("="*70)
 filepath = logger.save()
 print(f"✅ Trades saved to: {filepath}")
 
-# Analyze
 print("\n" + "="*70)
 print("📈 ANALYZING PERFORMANCE...")
 print("="*70)
