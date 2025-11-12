@@ -1,11 +1,15 @@
 # ============================================================================
-# RUN FRAMEWORK - TESTING GAP-UP STOCKS
+# RUN FRAMEWORK - WITH GAP-DAY FILTERING AND 1.0 ATR STOPS
+# ============================================================================
+# ✅ NEW: Only tests on days when stock actually gapped!
+# ✅ Uses 1.0 ATR stops
+# ✅ Uses scanner (or backup list)
 # ============================================================================
 
 import pandas as pd
 import yfinance as yf
-from framework_OLD import ORBStrategy, ORBConfig, TradeLogger, PerformanceAnalyzer
-from scanner import get_historical_gappers  # ← MAKE SURE THIS IS HERE!
+from framework import ORBStrategy, ORBConfig, TradeLogger, PerformanceAnalyzer
+from scanner import find_daily_gappers
 
 
 def fetch_bars(symbol: str, period: str = "60d", interval: str = "5m"):
@@ -26,7 +30,9 @@ def fetch_bars(symbol: str, period: str = "60d", interval: str = "5m"):
     return df
 
 
-# Strategy config
+# ============================================================================
+# STRATEGY CONFIG WITH 1.0 ATR STOPS
+# ============================================================================
 cfg = ORBConfig(
     or_start="09:30",
     or_end="09:35",
@@ -42,26 +48,22 @@ cfg = ORBConfig(
     risk_dollars=250.0,
     target_r1=2.0,
     target_r2=3.0,
-    vwap_stop_buffer_atr=0.10,
+    vwap_stop_buffer_atr=1.0,  # 1.0 ATR stops!
 )
 
 logger = TradeLogger(log_dir="logs/trades")
 strategy = ORBStrategy(config=cfg, logger=logger)
 
 # ============================================================================
-# 🎯 CRITICAL: USE SCANNER HERE!
+# USE SCANNER TO GET WATCHLIST
 # ============================================================================
-
-# OLD (WRONG):
-# WATCHLIST = ["AAPL", "NVDA", "TSLA", "AMD", "META", "MSFT"]
-
-# NEW (RIGHT):
-WATCHLIST = get_historical_gappers()  # ← THIS CALLS THE SCANNER!
-
-# ============================================================================
+WATCHLIST = find_daily_gappers()
 
 print("\n" + "="*70)
-print("🚀 STARTING BACKTEST")
+print("🚀 STARTING BACKTEST - GAP DAYS ONLY!")
+print("="*70)
+print("💡 This will ONLY test on days when the stock actually gapped 3%+")
+print("   (Just like your instructor trades!)")
 print("="*70)
 
 for symbol in WATCHLIST:
@@ -73,7 +75,15 @@ for symbol in WATCHLIST:
     if df.empty:
         continue
     
-    results = strategy.run_backtest(df)
+    # ========================================================================
+    # 🎯 THE MAGIC: filter_gap_days=True
+    # This tells the strategy to ONLY test on days when the stock gapped!
+    # ========================================================================
+    results = strategy.run_backtest(
+        df, 
+        filter_gap_days=True,  # ← THE KEY SETTING!
+        min_gap_pct=3.0        # Only test on days with 3%+ gaps
+    )
     
     print(f"\n📊 {symbol} Results:")
     print(f"  Trades: {results['trades']}")
@@ -95,3 +105,5 @@ analyzer = PerformanceAnalyzer(trades_df)
 analyzer.print_report()
 
 print("\n✅ BACKTEST COMPLETE!")
+print("\n💡 Remember: These results are ONLY from gap-up days!")
+print("   This matches how your instructor actually trades!")

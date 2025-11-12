@@ -1,8 +1,8 @@
 # ==============================================================================
-# ALL-IN-ONE TRADING FRAMEWORK - WIDENED STOPS FOR GAP STOCKS
+# FRAMEWORK WITH GAP-DAY FILTERING - 1.0 ATR STOPS
 # ==============================================================================
-# ✅ FIXED: Stops widened from 0.15-0.30 ATR to 0.50-0.75 ATR
-# Gap-up stocks are volatile and need more room to breathe!
+# ✅ NEW: Only tests strategy on days when stock ACTUALLY gapped!
+# ✅ FIXED: 1.0 ATR stops (instructor's rule)
 # ==============================================================================
 
 import pandas as pd
@@ -170,11 +170,26 @@ class BaseStrategy:
         """Simulate trade to exit"""
         raise NotImplementedError("Implement simulate_exit() in your strategy")
         
-    def run_backtest(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def run_backtest(self, df: pd.DataFrame, filter_gap_days: bool = False, min_gap_pct: float = 3.0) -> Dict[str, Any]:
         """Run strategy on historical data"""
         results = []
         
+        # Filter to gap days if requested
+        if filter_gap_days:
+            gap_days = identify_gap_days(df, min_gap_pct)
+            total_days = len(set(df.index.date))  # Fixed: use len(set()) for numpy array
+            print(f"   📊 Found {len(gap_days)} gap days out of {total_days} total days")
+            if len(gap_days) == 0:
+                print(f"   ⚠️  No gap days found!")
+                return {'trades': 0, 'winrate': 0, 'profit_factor': 0, 'total_pnl': 0}
+        else:
+            gap_days = None
+        
         for date, day_df in df.groupby(df.index.date):
+            # Skip non-gap days if filtering is enabled
+            if filter_gap_days and date not in gap_days:
+                continue
+                
             if not self.scan(day_df, date):
                 continue
             entry = self.calculate_entry(day_df, date)
@@ -207,6 +222,36 @@ class BaseStrategy:
 
 
 # ==============================================================================
+# PART 3.5: GAP DAY IDENTIFIER (NEW!)
+# ==============================================================================
+def identify_gap_days(df: pd.DataFrame, min_gap_pct: float = 3.0) -> set:
+    """
+    Identify which days the stock gapped up or down
+    
+    Gap = (today's open - yesterday's close) / yesterday's close * 100
+    
+    Returns: set of dates where gap >= min_gap_pct
+    """
+    if df.empty or 'open' not in df.columns or 'close' not in df.columns:
+        return set()
+    
+    # Get daily OHLC (in case we have intraday data)
+    daily = df.groupby(df.index.date).agg({
+        'open': 'first',   # First bar's open
+        'close': 'last',   # Last bar's close
+    })
+    
+    # Calculate gap from previous day's close to today's open
+    daily['prev_close'] = daily['close'].shift(1)
+    daily['gap_pct'] = ((daily['open'] - daily['prev_close']) / daily['prev_close']) * 100
+    
+    # Find days with gap >= min_gap_pct (up or down)
+    gap_days = daily[daily['gap_pct'].abs() >= min_gap_pct].index
+    
+    return set(gap_days)
+
+
+# ==============================================================================
 # PART 4: ORB CONFIG
 # ==============================================================================
 @dataclass
@@ -222,22 +267,22 @@ class ORBConfig:
     atr_length: int = 14
     ema_len_fast: int = 9
     ema_len_slow: int = 20
-    base_near_vwap_atr: float = 1.0  # Allow base to be up to 1.0 ATR from VWAP (for gap-ups)
-    base_tight_frac: float = 0.5  # Base must be VERY tight (max 50% of OR width)
+    base_near_vwap_atr: float = 2.0
+    base_tight_frac: float = 1.5
     or_width_min_atr: float = 0
     or_width_max_atr: float = 0
     breakout_vol_mult: float = 0.0
     risk_dollars: float = 250.0
     target_r1: float = 2.0
     target_r2: float = 3.0
-    vwap_stop_buffer_atr: float = 0.5  # WIDENED from 0.15 to 0.50!
+    vwap_stop_buffer_atr: float = 1.0  # 1.0 ATR stops!
     
     def t(self, hhmm: str) -> time:
         return datetime.strptime(hhmm, "%H:%M").time()
 
 
 # ==============================================================================
-# PART 5: ORB STRATEGY - WIDENED STOPS FOR GAP STOCKS
+# PART 5: ORB STRATEGY - WITH GAP-DAY FILTERING
 # ==============================================================================
 class ORBStrategy(BaseStrategy):
     """Opening Range Breakout Strategy"""
@@ -273,7 +318,7 @@ class ORBStrategy(BaseStrategy):
         return len(or_df) > 0 and len(base_df) > 0 and len(trade_df) > 0
         
     def calculate_entry(self, day_df: pd.DataFrame, date: Any) -> Optional[Dict[str, Any]]:
-        """Calculate entry if gates pass - WITH WIDENED STOPS"""
+        """Calculate entry if gates pass - WITH 1.0 ATR STOPS"""
         day_df = self.calc_vwap(day_df)
         day_df["atr"] = self.calc_atr(day_df)
         
@@ -290,7 +335,6 @@ class ORBStrategy(BaseStrategy):
         if len(atr_in_or) > 0:
             atr_val = float(atr_in_or.iloc[-1])
         else:
-            # Fallback to any ATR in the day
             all_atr = day_df["atr"].dropna()
             if len(all_atr) > 0:
                 atr_val = float(all_atr.iloc[0])
@@ -354,41 +398,30 @@ class ORBStrategy(BaseStrategy):
             
         # Get VWAP at entry time
         if "vwap" not in entry_bar or pd.isna(entry_bar["vwap"]):
-            vwap_at_entry = entry_price  # Fallback if no VWAP
+            vwap_at_entry = entry_price
         else:
             vwap_at_entry = float(entry_bar["vwap"])
         
-        # VWAP distance filter (don't enter if too far from VWAP)
+        # VWAP distance filter
         vwap_dist = abs(entry_price - vwap_at_entry)
         max_vwap_dist = 1.0 * atr_val
         
         if vwap_dist > max_vwap_dist:
             return None
         
-        # ============================================================
-        # 🎯 WIDENED STOP LOGIC FOR GAP STOCKS
-        # ============================================================
-        # Gap-up stocks are VOLATILE - they need more room!
-        # Old stops: 0.15-0.30 ATR (100% stop-outs!)
-        # New stops: 0.50-0.75 ATR (gives trades room to work)
-        # ============================================================
-        
-        vwap_buffer = 0.50 * atr_val  # WIDENED from 0.15 (3x wider!)
+        # 1.0 ATR STOPS
+        vwap_buffer = 1.0 * atr_val
         
         if side == "LONG":
-            # If VWAP is close, use VWAP stop
             if vwap_dist < (0.5 * atr_val):
                 stop_price = vwap_at_entry - vwap_buffer
             else:
-                # VWAP is far - use base-low with WIDER buffer
-                stop_price = base_low - (0.75 * atr_val)  # WIDENED from 0.30 (2.5x wider!)
+                stop_price = base_low - (1.0 * atr_val)
         else:  # SHORT
-            # If VWAP is close, use VWAP stop
             if vwap_dist < (0.5 * atr_val):
                 stop_price = vwap_at_entry + vwap_buffer
             else:
-                # VWAP is far - use base-high with WIDER buffer
-                stop_price = base_high + (0.75 * atr_val)  # WIDENED from 0.30 (2.5x wider!)
+                stop_price = base_high + (1.0 * atr_val)
             
         stop_distance = abs(entry_price - stop_price)
         if stop_distance <= 0:
@@ -509,5 +542,5 @@ class ORBStrategy(BaseStrategy):
 
 if __name__ == "__main__":
     print("✅ Framework loaded successfully!")
-    print("🔧 WIDENED STOPS: 0.50-0.75 ATR (was 0.15-0.30 ATR)")
-    print("💡 Gap stocks need room to breathe!")
+    print("🔧 1.0 ATR STOPS + GAP-DAY FILTERING!")
+    print("💡 Only tests on days when stock actually gapped!")
