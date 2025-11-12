@@ -4,7 +4,7 @@
 
 import pandas as pd
 import yfinance as yf
-from framework import ORBStrategy, ORBConfig, TradeLogger, PerformanceAnalyzer
+from framework_OLD import ORBStrategy, ORBConfig, TradeLogger, PerformanceAnalyzer
 from scanner import get_historical_gappers  # ← MAKE SURE THIS IS HERE!
 
 

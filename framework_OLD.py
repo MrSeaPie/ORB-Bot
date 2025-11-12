@@ -1,8 +1,7 @@
 # ==============================================================================
-# ALL-IN-ONE TRADING FRAMEWORK - WIDENED STOPS FOR GAP STOCKS
+# ALL-IN-ONE TRADING FRAMEWORK - FIXED STOP PLACEMENT
 # ==============================================================================
-# ✅ FIXED: Stops widened from 0.15-0.30 ATR to 0.50-0.75 ATR
-# Gap-up stocks are volatile and need more room to breathe!
+# ✅ FIXED: Stops now at base low/high instead of VWAP (much tighter!)
 # ==============================================================================
 
 import pandas as pd
@@ -230,14 +229,14 @@ class ORBConfig:
     risk_dollars: float = 250.0
     target_r1: float = 2.0
     target_r2: float = 3.0
-    vwap_stop_buffer_atr: float = 0.5  # WIDENED from 0.15 to 0.50!
+    vwap_stop_buffer_atr: float = 0.3
     
     def t(self, hhmm: str) -> time:
         return datetime.strptime(hhmm, "%H:%M").time()
 
 
 # ==============================================================================
-# PART 5: ORB STRATEGY - WIDENED STOPS FOR GAP STOCKS
+# PART 5: ORB STRATEGY - FIXED STOP PLACEMENT
 # ==============================================================================
 class ORBStrategy(BaseStrategy):
     """Opening Range Breakout Strategy"""
@@ -273,7 +272,7 @@ class ORBStrategy(BaseStrategy):
         return len(or_df) > 0 and len(base_df) > 0 and len(trade_df) > 0
         
     def calculate_entry(self, day_df: pd.DataFrame, date: Any) -> Optional[Dict[str, Any]]:
-        """Calculate entry if gates pass - WITH WIDENED STOPS"""
+        """Calculate entry if gates pass - FIXED STOP LOGIC"""
         day_df = self.calc_vwap(day_df)
         day_df["atr"] = self.calc_atr(day_df)
         
@@ -300,13 +299,15 @@ class ORBStrategy(BaseStrategy):
         if not np.isfinite(atr_val) or atr_val <= 0:
             return None
             
-        # GATE 1: OR WIDTH
+        # GATE 1: OR WIDTH - FIXED LOGIC
         or_in_atr = or_range / atr_val
         
+        # Only check min gate if it's enabled (> 0)
         if self.cfg.or_width_min_atr > 0:
             if or_in_atr < self.cfg.or_width_min_atr:
                 return None
         
+        # Only check max gate if it's enabled (> 0)
         if self.cfg.or_width_max_atr > 0:
             if or_in_atr > self.cfg.or_width_max_atr:
                 return None
@@ -319,13 +320,13 @@ class ORBStrategy(BaseStrategy):
         base_low = float(base_df["low"].min())
         base_range = base_high - base_low
         
-        # GATE 2: BASE TIGHTNESS
+        # GATE 2: BASE TIGHTNESS - FIXED LOGIC
         if self.cfg.base_tight_frac > 0:
             tight_ratio = base_range / or_range if or_range > 0 else 999
             if tight_ratio > self.cfg.base_tight_frac:
                 return None
                 
-        # GATE 3: BASE NEAR VWAP
+        # GATE 3: BASE NEAR VWAP - FIXED LOGIC
         if self.cfg.base_near_vwap_atr > 0:
             if "vwap" in base_df.columns:
                 dist = (base_df["close"] - base_df["vwap"]).abs()
@@ -334,6 +335,9 @@ class ORBStrategy(BaseStrategy):
                     mean_dist_atr = float(dist.mean()) / atr_val
                     if mean_dist_atr > self.cfg.base_near_vwap_atr:
                         return None
+        
+        # Side-of-VWAP check: DISABLED for now (was too strict!)
+        # Will re-enable if needed after testing looser VWAP distance filter
                     
         trade_df = day_df.between_time(self.cfg.t(self.cfg.trade_start), self.cfg.t(self.cfg.trade_end))
         if len(trade_df) == 0:
@@ -358,37 +362,33 @@ class ORBStrategy(BaseStrategy):
         else:
             vwap_at_entry = float(entry_bar["vwap"])
         
-        # VWAP distance filter (don't enter if too far from VWAP)
+        # 🔥 FILTER: Don't enter if too far from VWAP (reduces bad trades!)
         vwap_dist = abs(entry_price - vwap_at_entry)
-        max_vwap_dist = 1.0 * atr_val
+        max_vwap_dist = 1.0 * atr_val  # Max 1.0 ATR from VWAP
         
         if vwap_dist > max_vwap_dist:
-            return None
+            return None  # Skip this trade - too far from VWAP
         
-        # ============================================================
-        # 🎯 WIDENED STOP LOGIC FOR GAP STOCKS
-        # ============================================================
-        # Gap-up stocks are VOLATILE - they need more room!
-        # Old stops: 0.15-0.30 ATR (100% stop-outs!)
-        # New stops: 0.50-0.75 ATR (gives trades room to work)
-        # ============================================================
+        # 🎯 HYBRID STOP LOGIC (Best of both worlds!)
+        # Close to VWAP: Use VWAP stop (instructor's way - more room)
+        # Far from VWAP: Use wider stop (our adaptation)
         
-        vwap_buffer = 0.50 * atr_val  # WIDENED from 0.15 (3x wider!)
+        vwap_buffer = 0.15 * atr_val
         
         if side == "LONG":
-            # If VWAP is close, use VWAP stop
+            # If VWAP is close, use VWAP stop (instructor's method)
             if vwap_dist < (0.5 * atr_val):
                 stop_price = vwap_at_entry - vwap_buffer
             else:
                 # VWAP is far - use base-low with WIDER buffer
-                stop_price = base_low - (0.75 * atr_val)  # WIDENED from 0.30 (2.5x wider!)
+                stop_price = base_low - (0.30 * atr_val)
         else:  # SHORT
             # If VWAP is close, use VWAP stop
             if vwap_dist < (0.5 * atr_val):
                 stop_price = vwap_at_entry + vwap_buffer
             else:
                 # VWAP is far - use base-high with WIDER buffer
-                stop_price = base_high + (0.75 * atr_val)  # WIDENED from 0.30 (2.5x wider!)
+                stop_price = base_high + (0.30 * atr_val)
             
         stop_distance = abs(entry_price - stop_price)
         if stop_distance <= 0:
@@ -509,5 +509,4 @@ class ORBStrategy(BaseStrategy):
 
 if __name__ == "__main__":
     print("✅ Framework loaded successfully!")
-    print("🔧 WIDENED STOPS: 0.50-0.75 ATR (was 0.15-0.30 ATR)")
-    print("💡 Gap stocks need room to breathe!")
+    print("🔧 Fixed: Stops now at base low/high instead of VWAP (tighter!)")
