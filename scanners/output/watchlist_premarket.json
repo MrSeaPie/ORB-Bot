@@ -1,0 +1,58 @@
+{
+  "scan_time": "2025-12-21T14:18:05.619742",
+  "scan_type": "premarket",
+  "filters": {
+    "min_gap_pct": 3.0,
+    "min_price": 5.0,
+    "max_price": 500.0,
+    "min_avg_volume": 500000
+  },
+  "count": 3,
+  "stocks": [
+    {
+      "symbol": "HUT",
+      "prev_close": 38.59,
+      "current_price": 40.22,
+      "gap_pct": 4.22,
+      "volume": 11484100,
+      "avg_volume": 11888680,
+      "relative_volume": 0.97,
+      "has_news": false,
+      "headline": "",
+      "catalyst_type": "none",
+      "score": 40,
+      "scan_type": "premarket",
+      "scan_time": "2025-12-21T14:18:01.357635"
+    },
+    {
+      "symbol": "ORCL",
+      "prev_close": 180.03,
+      "current_price": 188.39,
+      "gap_pct": 4.64,
+      "volume": 76908300,
+      "avg_volume": 47951720,
+      "relative_volume": 1.6,
+      "has_news": false,
+      "headline": "",
+      "catalyst_type": "none",
+      "score": 40,
+      "scan_type": "premarket",
+      "scan_time": "2025-12-21T14:18:05.154980"
+    },
+    {
+      "symbol": "MSTR",
+      "prev_close": 158.24,
+      "current_price": 163.4,
+      "gap_pct": 3.26,
+      "volume": 21836200,
+      "avg_volume": 21018040,
+      "relative_volume": 1.04,
+      "has_news": false,
+      "headline": "",
+      "catalyst_type": "none",
+      "score": 30,
+      "scan_type": "premarket",
+      "scan_time": "2025-12-21T14:17:57.258611"
+    }
+  ]
+}

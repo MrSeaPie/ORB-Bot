@@ -1,0 +1,79 @@
+# Stock Universe for Gap Scanner
+# Update this list weekly with momentum names
+# One symbol per line, comments start with #
+
+# === MEGA CAPS (Always liquid) ===
+AAPL
+MSFT
+GOOGL
+AMZN
+META
+NVDA
+TSLA
+
+# === HIGH-BETA TECH ===
+AMD
+COIN
+MSTR
+PLTR
+SMCI
+ARM
+CRWD
+SNOW
+NET
+DDOG
+
+# === POPULAR MOMENTUM ===
+SOUN
+IONQ
+RKLB
+HOOD
+SOFI
+AFRM
+UPST
+PATH
+
+# === EV / CLEAN ENERGY ===
+RIVN
+LCID
+NIO
+PLUG
+GEVO
+QS
+
+# === CRYPTO / BITCOIN ===
+MARA
+RIOT
+HIVE
+HUT
+BTBT
+
+# === BIOTECH (Often gap) ===
+MRNA
+VKTX
+SMMT
+
+# === SMALL CAP RUNNERS ===
+BBAI
+WKHS
+RIDE
+SPCE
+JOBY
+MVST
+
+# === MEME / RETAIL FAVORITES ===
+GME
+AMC
+RDDT
+
+# === AI / TECH GROWTH ===
+DELL
+ORCL
+CRM
+NOW
+PANW
+
+# === UPDATE THESE WEEKLY ===
+# Add recent IPOs
+# Add stocks hitting new highs
+# Remove stocks that stopped moving

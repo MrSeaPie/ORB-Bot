@@ -1,0 +1,377 @@
+{
+  "scan_time": "2025-12-26T11:55:00.976018",
+  "scan_type": "eod_daily",
+  "count": 13,
+  "stocks": [
+    {
+      "symbol": "AMZN",
+      "price": 232.51,
+      "ema9": 229.45,
+      "ema20": 229.08,
+      "ema50": 229.14,
+      "rsi": 55.1,
+      "relative_volume": 0.16,
+      "bone_zone": true,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "pullback_to_ma",
+          "ma_level": "ema20",
+          "ma_price": 229.08,
+          "bounce_strength": 81.2,
+          "score_bonus": 20
+        },
+        {
+          "pattern": "base_breakout",
+          "range_high": 238.97,
+          "range_low": 220.99,
+          "range_pct": 8.14,
+          "vol_ratio": 0.9,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "pullback_to_ma",
+        "base_breakout"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:55.896636"
+    },
+    {
+      "symbol": "NVDA",
+      "price": 191.06,
+      "ema9": 184.3,
+      "ema20": 182.93,
+      "ema50": 183.64,
+      "rsi": 59.7,
+      "relative_volume": 0.4,
+      "bone_zone": true,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "flat_top_breakout",
+          "resistance": 192.29,
+          "touches": 3,
+          "distance_to_breakout_pct": 0.64,
+          "score_bonus": 25
+        },
+        {
+          "pattern": "base_breakout",
+          "range_high": 192.29,
+          "range_low": 170.31,
+          "range_pct": 12.91,
+          "vol_ratio": 0.91,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "flat_top_breakout",
+        "base_breakout"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:56.144113"
+    },
+    {
+      "symbol": "TSLA",
+      "price": 478.88,
+      "ema9": 477.57,
+      "ema20": 464.28,
+      "ema50": 444.03,
+      "rsi": 59.0,
+      "relative_volume": 0.44,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "bull_flag",
+          "pole_low": 435.7,
+          "pole_high": 498.83,
+          "pole_pct": 14.49,
+          "flag_low": 473.82,
+          "flag_high": 498.83,
+          "score_bonus": 30
+        }
+      ],
+      "pattern_names": [
+        "bull_flag"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:56.217646"
+    },
+    {
+      "symbol": "PLTR",
+      "price": 191.38,
+      "ema9": 189.68,
+      "ema20": 185.07,
+      "ema50": 181.09,
+      "rsi": 60.5,
+      "relative_volume": 0.3,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "bull_flag",
+          "pole_low": 176.5,
+          "pole_high": 198.88,
+          "pole_pct": 12.68,
+          "flag_low": 190.95,
+          "flag_high": 198.88,
+          "score_bonus": 30
+        }
+      ],
+      "pattern_names": [
+        "bull_flag"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:56.548393"
+    },
+    {
+      "symbol": "AFRM",
+      "price": 75.45,
+      "ema9": 74.49,
+      "ema20": 72.54,
+      "ema50": 72.4,
+      "rsi": 63.4,
+      "relative_volume": 0.11,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "bull_flag",
+          "pole_low": 64.9,
+          "pole_high": 78.98,
+          "pole_pct": 21.69,
+          "flag_low": 74.04,
+          "flag_high": 78.98,
+          "score_bonus": 30
+        }
+      ],
+      "pattern_names": [
+        "bull_flag"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:57.743069"
+    },
+    {
+      "symbol": "RIVN",
+      "price": 21.01,
+      "ema9": 20.33,
+      "ema20": 18.97,
+      "ema50": 16.97,
+      "rsi": 63.5,
+      "relative_volume": 0.17,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "bull_flag",
+          "pole_low": 15.73,
+          "pole_high": 22.69,
+          "pole_pct": 44.25,
+          "flag_low": 20.69,
+          "flag_high": 22.69,
+          "score_bonus": 30
+        }
+      ],
+      "pattern_names": [
+        "bull_flag"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:58.033328"
+    },
+    {
+      "symbol": "HUT",
+      "price": 49.48,
+      "ema9": 47.01,
+      "ema20": 44.58,
+      "ema50": 42.39,
+      "rsi": 58.9,
+      "relative_volume": 0.3,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "bull_flag",
+          "pole_low": 34.18,
+          "pole_high": 53.88,
+          "pole_pct": 57.64,
+          "flag_low": 47.91,
+          "flag_high": 53.88,
+          "score_bonus": 30
+        }
+      ],
+      "pattern_names": [
+        "bull_flag"
+      ],
+      "score": 100,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:58.973705"
+    },
+    {
+      "symbol": "CRM",
+      "price": 266.23,
+      "ema9": 261.62,
+      "ema20": 256.07,
+      "ema50": 250.14,
+      "rsi": 60.2,
+      "relative_volume": 0.12,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "flat_top_breakout",
+          "resistance": 267.88,
+          "touches": 8,
+          "distance_to_breakout_pct": 0.62,
+          "score_bonus": 25
+        }
+      ],
+      "pattern_names": [
+        "flat_top_breakout"
+      ],
+      "score": 95,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:55:00.824246"
+    },
+    {
+      "symbol": "GOOGL",
+      "price": 313.62,
+      "ema9": 310.84,
+      "ema20": 308.5,
+      "ema50": 292.9,
+      "rsi": 43.3,
+      "relative_volume": 0.14,
+      "bone_zone": true,
+      "uptrend": true,
+      "patterns": [
+        {
+          "pattern": "base_breakout",
+          "range_high": 326.64,
+          "range_low": 296.12,
+          "range_pct": 10.31,
+          "vol_ratio": 0.79,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "base_breakout"
+      ],
+      "score": 90,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:55.799416"
+    },
+    {
+      "symbol": "MSFT",
+      "price": 487.3,
+      "ema9": 484.83,
+      "ema20": 485.54,
+      "ema50": 493.54,
+      "rsi": 54.0,
+      "relative_volume": 0.12,
+      "bone_zone": false,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "base_breakout",
+          "range_high": 493.5,
+          "range_low": 470.88,
+          "range_pct": 4.8,
+          "vol_ratio": 0.96,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "base_breakout"
+      ],
+      "score": 80,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:55.717443"
+    },
+    {
+      "symbol": "AMD",
+      "price": 215.6,
+      "ema9": 213.1,
+      "ema20": 215.21,
+      "ema50": 215.93,
+      "rsi": 47.5,
+      "relative_volume": 0.3,
+      "bone_zone": false,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "base_breakout",
+          "range_high": 225.98,
+          "range_low": 197.53,
+          "range_pct": 14.4,
+          "vol_ratio": 0.86,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "base_breakout"
+      ],
+      "score": 80,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:56.292052"
+    },
+    {
+      "symbol": "SMMT",
+      "price": 18.24,
+      "ema9": 17.94,
+      "ema20": 17.86,
+      "ema50": 18.59,
+      "rsi": 49.4,
+      "relative_volume": 0.14,
+      "bone_zone": true,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "base_breakout",
+          "range_high": 19.1,
+          "range_low": 16.76,
+          "range_pct": 13.96,
+          "vol_ratio": 0.84,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "base_breakout"
+      ],
+      "score": 80,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:59.310327"
+    },
+    {
+      "symbol": "AAPL",
+      "price": 274.67,
+      "ema9": 273.96,
+      "ema20": 274.5,
+      "ema50": 269.26,
+      "rsi": 39.7,
+      "relative_volume": 0.15,
+      "bone_zone": false,
+      "uptrend": false,
+      "patterns": [
+        {
+          "pattern": "pullback_to_ma",
+          "ma_level": "ema20",
+          "ma_price": 274.5,
+          "bounce_strength": 52.4,
+          "score_bonus": 20
+        }
+      ],
+      "pattern_names": [
+        "pullback_to_ma"
+      ],
+      "score": 70,
+      "scan_type": "eod_daily",
+      "scan_time": "2025-12-26T11:54:55.618055"
+    }
+  ]
+}
