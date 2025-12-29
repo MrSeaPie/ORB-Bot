@@ -1,415 +1,481 @@
 """
-Multi-Strategy Quant Engine
-Runs multiple strategies simultaneously and uses ML-style decision making
-to choose which trades to take based on recent performance
+==============================================================================
+QUANT ENGINE v3.0 - IMPORTS YOUR ACTUAL STRATEGIES
+==============================================================================
+This engine IMPORTS your real strategy files - no duplicate code!
+
+Your files:
+- fpb_strategy.py → 600 lines, tested, 47.7% win rate
+- (future) elite_orb_strategy.py
+
+This file just:
+1. Loads stocks from scanner
+2. Imports YOUR strategies
+3. Runs them
+4. Handles paper/live trading via Alpaca
+
+==============================================================================
 """
 
-import pandas as pd
-import numpy as np
-from datetime import datetime, time
-from typing import Dict, List, Optional, Tuple
-import json
+import sys
 import os
+from datetime import datetime, time
+from typing import Dict, List, Optional
+from pathlib import Path
+import json
+import warnings
+warnings.filterwarnings('ignore')
 
-class StrategyBase:
-    """Base class for all trading strategies"""
+# === ADD YOUR BOT FOLDER TO PATH ===
+# This lets Python find your strategy files
+sys.path.insert(0, 'C:/Users/Hassan/ORB-Bot')
+sys.path.insert(0, 'C:/Users/Hassan/ORB-Bot/scanners')
+
+# === IMPORT YOUR ACTUAL STRATEGIES ===
+try:
+    from fpb_strategy import FirstPullbackBuy, FPBConfig, FPBTradeLogger, download_stock_data, load_watchlist_symbols, load_watchlist_full
+    FPB_AVAILABLE = True
+    print("✅ Imported fpb_strategy.py")
+except ImportError as e:
+    FPB_AVAILABLE = False
+    print(f"⚠️  Could not import fpb_strategy.py: {e}")
+
+# Future: Add more strategies
+# try:
+#     from elite_orb_strategy import EliteORB, ORBConfig
+#     ORB_AVAILABLE = True
+# except ImportError:
+#     ORB_AVAILABLE = False
+
+# === IMPORT ALPACA FOR PAPER TRADING ===
+try:
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    ALPACA_AVAILABLE = True
+except ImportError:
+    ALPACA_AVAILABLE = False
+    print("⚠️  alpaca-py not installed. Run: pip install alpaca-py")
+
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+class QuantConfig:
+    """
+    Quant Engine Configuration
     
-    def __init__(self, name: str):
-        self.name = name
-        self.performance_history = []
-        self.win_rate = 0
-        self.avg_r_multiple = 0
-        self.confidence = 0.5
-        self.min_trades_for_confidence = 10
-        
-    def scan_for_setup(self, data: pd.DataFrame, symbol: str, date: str) -> Optional[Dict]:
-        """Override in child class"""
-        raise NotImplementedError
-        
-    def update_performance(self, trade_result: Dict):
-        """Update strategy performance based on trade result"""
-        self.performance_history.append(trade_result)
-        
-        # Calculate metrics on recent trades
-        recent = self.performance_history[-30:]  # Last 30 trades
-        if len(recent) >= self.min_trades_for_confidence:
-            winners = [t for t in recent if t.get('r_multiple', 0) > 0]
-            self.win_rate = len(winners) / len(recent)
-            self.avg_r_multiple = np.mean([t.get('r_multiple', 0) for t in recent])
-            
-            # Update confidence (0-1 scale)
-            # Confidence = win_rate * avg_r_multiple * recency_factor
-            self.confidence = min(1.0, self.win_rate * max(0, self.avg_r_multiple) * 0.8)
-        else:
-            # Not enough trades yet, use default confidence
-            self.confidence = 0.3
-            
-    def get_expected_value(self) -> float:
-        """Calculate expected value of next trade"""
-        return self.win_rate * self.avg_r_multiple
-        
-
-class ORB_15Min_Strategy(StrategyBase):
-    """15-minute ORB from instructor screenshots"""
+    Get your Alpaca keys from: https://app.alpaca.markets/paper/dashboard/overview
+    """
     
-    def __init__(self):
-        super().__init__("ORB_15Min")
-        self.min_gap = 4.0
-        self.or_start = time(9, 30)
-        self.or_end = time(9, 45)
+    def __init__(
+        self,
+        # Alpaca API (get from dashboard)
+        alpaca_api_key: str = "YOUR_API_KEY_HERE",
+        alpaca_secret_key: str = "YOUR_SECRET_KEY_HERE",
         
-    def scan_for_setup(self, data: pd.DataFrame, symbol: str, date: str) -> Optional[Dict]:
-        """Scan for 15-min ORB setup"""
-        # Simplified version - would import from elite_orb_strategy.py
-        data['time'] = pd.to_datetime(data.index).time
-        or_data = data[(data['time'] >= self.or_start) & (data['time'] < self.or_end)]
+        # Mode: "backtest", "paper", or "live"
+        mode: str = "backtest",
         
-        if len(or_data) < 3:
-            return None
-            
-        or_high = or_data['high'].max()
-        or_low = or_data['low'].min()
-        
-        # Look for breakout
-        post_or = data[data['time'] >= self.or_end]
-        for bar in post_or.itertuples():
-            if bar.close > or_high * 1.002:  # 0.2% above high
-                return {
-                    'strategy': self.name,
-                    'symbol': symbol,
-                    'date': date,
-                    'entry': or_high + 0.01,
-                    'stop': or_low - 0.05,
-                    'target': or_high + ((or_high - or_low) * 2),
-                    'confidence': self.confidence
-                }
-        return None
+        # Risk settings
+        capital: float = 10000.0,
+        risk_per_trade: float = 250.0,
+        max_positions: int = 3,
+    ):
+        self.ALPACA_API_KEY = alpaca_api_key
+        self.ALPACA_SECRET_KEY = alpaca_secret_key
+        self.mode = mode
+        self.capital = capital
+        self.risk_per_trade = risk_per_trade
+        self.max_positions = max_positions
 
 
-class GapAndGo_Strategy(StrategyBase):
-    """Gap and Go - buy strong gaps that keep running"""
+# ==============================================================================
+# ALPACA TRADER (Paper/Live)
+# ==============================================================================
+class AlpacaTrader:
+    """Handles Alpaca API for paper/live trading"""
     
-    def __init__(self):
-        super().__init__("GapAndGo")
-        self.min_gap = 5.0
-        self.pullback_max = 0.5  # Max 50% pullback from gap
+    def __init__(self, config: QuantConfig):
+        self.config = config
+        self.client = None
+        self.connected = False
         
-    def scan_for_setup(self, data: pd.DataFrame, symbol: str, date: str) -> Optional[Dict]:
-        """Scan for gap and go setup"""
-        open_price = data['open'].iloc[0]
-        prev_close = open_price * 0.95  # Estimate
-        gap_pct = ((open_price - prev_close) / prev_close) * 100
+        if not ALPACA_AVAILABLE:
+            print("❌ Alpaca not installed")
+            return
         
-        if gap_pct < self.min_gap:
-            return None
-            
-        # Look for pullback and continuation
-        first_30min = data.iloc[:6]  # First 30 minutes (6 x 5-min bars)
-        low_of_day = first_30min['low'].min()
+        if config.ALPACA_API_KEY == "YOUR_API_KEY_HERE":
+            print("⚠️  Alpaca API keys not set!")
+            print("   Get keys: https://app.alpaca.markets/paper/dashboard/overview")
+            return
         
-        pullback_pct = (open_price - low_of_day) / (open_price - prev_close)
-        if pullback_pct > self.pullback_max:
-            return None
-            
-        # Entry on new high after pullback
-        for bar in data.iloc[6:].itertuples():
-            if bar.high > first_30min['high'].max():
-                return {
-                    'strategy': self.name,
-                    'symbol': symbol,
-                    'date': date,
-                    'entry': bar.high + 0.01,
-                    'stop': low_of_day - 0.05,
-                    'target': bar.high + ((bar.high - low_of_day) * 1.5),
-                    'confidence': self.confidence
-                }
-        return None
-
-
-class VWAPBounce_Strategy(StrategyBase):
-    """VWAP Bounce - buy bounces off VWAP"""
+        self._connect()
     
-    def __init__(self):
-        super().__init__("VWAPBounce")
-        self.min_touches = 2
-        self.bounce_threshold = 0.002  # 0.2% 
-        
-    def scan_for_setup(self, data: pd.DataFrame, symbol: str, date: str) -> Optional[Dict]:
-        """Scan for VWAP bounce"""
-        # Calculate VWAP
-        typical_price = (data['high'] + data['low'] + data['close']) / 3
-        vwap = (typical_price * data['volume']).cumsum() / data['volume'].cumsum()
-        
-        touches = 0
-        for i, bar in enumerate(data.itertuples()):
-            # Check if low touches VWAP
-            if abs(bar.low - vwap.iloc[i]) / vwap.iloc[i] < self.bounce_threshold:
-                touches += 1
-                
-                if touches >= self.min_touches and bar.close > vwap.iloc[i]:
-                    return {
-                        'strategy': self.name,
-                        'symbol': symbol,
-                        'date': date,
-                        'entry': bar.close,
-                        'stop': bar.low - 0.05,
-                        'target': bar.close + ((bar.close - bar.low) * 2),
-                        'confidence': self.confidence
-                    }
-        return None
-
-
-class BullFlag_Strategy(StrategyBase):
-    """Bull Flag - strong move up, tight consolidation, continuation"""
+    def _connect(self):
+        try:
+            is_paper = self.config.mode in ["backtest", "paper"]
+            
+            self.client = TradingClient(
+                api_key=self.config.ALPACA_API_KEY,
+                secret_key=self.config.ALPACA_SECRET_KEY,
+                paper=is_paper
+            )
+            
+            account = self.client.get_account()
+            self.connected = True
+            
+            print(f"✅ Connected to Alpaca ({'Paper' if is_paper else 'LIVE'})")
+            print(f"   Equity: ${float(account.equity):,.2f}")
+            print(f"   Buying Power: ${float(account.buying_power):,.2f}")
+            
+        except Exception as e:
+            print(f"❌ Connection failed: {e}")
     
-    def __init__(self):
-        super().__init__("BullFlag")
-        self.min_pole_move = 0.03  # 3% minimum for pole
-        self.max_flag_retrace = 0.5  # Max 50% retracement
-        self.min_consolidation_bars = 3
-        
-    def scan_for_setup(self, data: pd.DataFrame, symbol: str, date: str) -> Optional[Dict]:
-        """Scan for bull flag"""
-        for i in range(10, len(data) - 5):
-            # Look for pole (strong move up)
-            pole_start = i - 10
-            pole_end = i
-            pole_move = (data['high'].iloc[pole_end] - data['low'].iloc[pole_start]) / data['low'].iloc[pole_start]
-            
-            if pole_move < self.min_pole_move:
-                continue
-                
-            # Look for flag (consolidation)
-            flag_data = data.iloc[pole_end:pole_end + 5]
-            flag_high = flag_data['high'].max()
-            flag_low = flag_data['low'].min()
-            
-            # Check retracement
-            retrace = (data['high'].iloc[pole_end] - flag_low) / (data['high'].iloc[pole_end] - data['low'].iloc[pole_start])
-            if retrace > self.max_flag_retrace:
-                continue
-                
-            # Check for breakout
-            if flag_data['close'].iloc[-1] > flag_high:
-                return {
-                    'strategy': self.name,
-                    'symbol': symbol,
-                    'date': date,
-                    'entry': flag_high + 0.01,
-                    'stop': flag_low - 0.05,
-                    'target': flag_high + (data['high'].iloc[pole_end] - data['low'].iloc[pole_start]),
-                    'confidence': self.confidence
-                }
-        return None
+    def get_positions(self) -> List[Dict]:
+        if not self.connected:
+            return []
+        try:
+            positions = self.client.get_all_positions()
+            return [{
+                'symbol': p.symbol,
+                'qty': float(p.qty),
+                'entry': float(p.avg_entry_price),
+                'pnl': float(p.unrealized_pl),
+            } for p in positions]
+        except:
+            return []
+    
+    def buy(self, symbol: str, qty: int) -> bool:
+        """Place a BUY order"""
+        if not self.connected:
+            return False
+        try:
+            order = MarketOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=OrderSide.BUY,
+                time_in_force=TimeInForce.DAY
+            )
+            self.client.submit_order(order)
+            print(f"   ✅ BUY {qty} {symbol}")
+            return True
+        except Exception as e:
+            print(f"   ❌ BUY failed: {e}")
+            return False
+    
+    def sell(self, symbol: str, qty: int) -> bool:
+        """Place a SELL order"""
+        if not self.connected:
+            return False
+        try:
+            order = MarketOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=OrderSide.SELL,
+                time_in_force=TimeInForce.DAY
+            )
+            self.client.submit_order(order)
+            print(f"   ✅ SELL {qty} {symbol}")
+            return True
+        except Exception as e:
+            print(f"   ❌ SELL failed: {e}")
+            return False
+    
+    def close_all(self):
+        """Close all positions"""
+        if not self.connected:
+            return
+        try:
+            self.client.close_all_positions(cancel_orders=True)
+            print("✅ All positions closed")
+        except:
+            pass
 
 
+# ==============================================================================
+# QUANT ENGINE
+# ==============================================================================
 class QuantEngine:
     """
     Multi-Strategy Quant Engine
-    Runs multiple strategies and decides which trades to take
+    
+    This engine:
+    1. Loads stocks from your scanner (watchlist.json)
+    2. Runs YOUR actual strategies (fpb_strategy.py, etc.)
+    3. Picks the best trades
+    4. Optionally executes via Alpaca (paper/live)
     """
     
-    def __init__(self, capital: float = 10000):
-        self.capital = capital
-        self.strategies = []
-        self.all_signals = []
-        self.taken_trades = []
-        self.performance_log = []
-        self.max_concurrent_trades = 3
-        self.risk_per_trade_pct = 0.02  # 2% risk per trade
-        self.min_confidence_threshold = 0.4
+    def __init__(self, config: QuantConfig = None):
+        self.config = config or QuantConfig()
+        self.trader = None
+        self.results = []
         
-    def add_strategy(self, strategy: StrategyBase):
-        """Add a strategy to the engine"""
-        self.strategies.append(strategy)
-        print(f"Added strategy: {strategy.name}")
+        # Setup logging
+        self.log_dir = Path("logs/quant_engine")
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         
-    def scan_all_strategies(self, data: pd.DataFrame, symbol: str, date: str) -> List[Dict]:
-        """Run all strategies and collect signals"""
-        signals = []
-        for strategy in self.strategies:
+        # Connect to Alpaca if paper/live mode
+        if self.config.mode in ["paper", "live"]:
+            self.trader = AlpacaTrader(self.config)
+    
+    def run_fpb_backtest(self) -> Dict:
+        """
+        Run YOUR fpb_strategy.py on scanner watchlist
+        
+        This uses your EXACT code - 600 lines, tested, 47.7% win rate
+        """
+        if not FPB_AVAILABLE:
+            print("❌ fpb_strategy.py not available")
+            return {}
+        
+        print("\n" + "="*70)
+        print("🎯 RUNNING FPB STRATEGY (Your Actual Code)")
+        print("="*70)
+        
+        # Load stocks from scanner
+        symbols = load_watchlist_symbols()
+        if not symbols:
+            print("❌ No stocks in watchlist!")
+            return {}
+        
+        # Setup YOUR strategy with YOUR config
+        fpb_config = FPBConfig(
+            min_gap_pct=3.0,
+            risk_dollars=self.config.risk_per_trade,
+            target_r1=1.5,
+            target_r2=3.0,
+        )
+        
+        logger = FPBTradeLogger()
+        strategy = FirstPullbackBuy(config=fpb_config, logger=logger)
+        
+        print(f"\n⚙️  FPB Settings:")
+        print(f"   Min Gap: {fpb_config.min_gap_pct}%")
+        print(f"   Risk: ${fpb_config.risk_dollars}/trade")
+        print(f"   Targets: {fpb_config.target_r1}R / {fpb_config.target_r2}R")
+        
+        # Run on each stock
+        all_results = []
+        
+        for symbol in symbols:
+            df = download_stock_data(symbol, days=60)
+            if df is None:
+                continue
+            
             try:
-                signal = strategy.scan_for_setup(data, symbol, date)
-                if signal:
-                    signal['expected_value'] = strategy.get_expected_value()
-                    signals.append(signal)
+                result = strategy.run_backtest(df, symbol=symbol)
+                all_results.append(result)
             except Exception as e:
-                print(f"Error in {strategy.name}: {e}")
-                continue
-        return signals
+                print(f"   ❌ {symbol}: {e}")
         
-    def rank_signals(self, signals: List[Dict]) -> List[Dict]:
-        """
-        Rank signals by expected value and confidence
-        This is where the "ML" magic happens
-        """
-        # Calculate composite score for each signal
-        for signal in signals:
-            # Composite score = confidence * expected_value * recency_bonus
-            strategy = next(s for s in self.strategies if s.name == signal['strategy'])
-            
-            # Recency bonus (strategies that worked recently get bonus)
-            recent_trades = strategy.performance_history[-5:]
-            if recent_trades:
-                recent_win_rate = len([t for t in recent_trades if t.get('r_multiple', 0) > 0]) / len(recent_trades)
-                recency_bonus = 1 + (recent_win_rate * 0.2)  # Up to 20% bonus
-            else:
-                recency_bonus = 1.0
-                
-            signal['composite_score'] = signal['confidence'] * signal['expected_value'] * recency_bonus
-            
-        # Sort by composite score
-        ranked = sorted(signals, key=lambda x: x['composite_score'], reverse=True)
-        return ranked
+        # Save trades
+        logger.save()
         
-    def decide_trades(self, signals: List[Dict]) -> List[Dict]:
-        """
-        Decide which trades to actually take based on:
-        - Confidence threshold
-        - Risk management
-        - Concurrent trade limits
-        """
-        trades_to_take = []
-        total_risk = 0
+        # Summary
+        total_trades = sum(r.get('trades', 0) for r in all_results)
+        total_pnl = sum(r.get('total_pnl', 0) for r in all_results)
+        total_winners = sum(r.get('winners', 0) for r in all_results)
         
-        ranked_signals = self.rank_signals(signals)
+        print("\n" + "="*70)
+        print("📊 FPB RESULTS")
+        print("="*70)
+        print(f"   Stocks: {len(all_results)}")
+        print(f"   Trades: {total_trades}")
+        if total_trades > 0:
+            print(f"   Win Rate: {(total_winners/total_trades)*100:.1f}%")
+            print(f"   Total PnL: ${total_pnl:.2f}")
         
-        for signal in ranked_signals:
-            # Skip low confidence
-            if signal['confidence'] < self.min_confidence_threshold:
-                continue
-                
-            # Check concurrent trade limit
-            if len(trades_to_take) >= self.max_concurrent_trades:
-                break
-                
-            # Calculate position size based on confidence
-            # Higher confidence = larger position (but capped)
-            risk_dollars = self.capital * self.risk_per_trade_pct * signal['confidence']
-            risk_dollars = min(risk_dollars, self.capital * 0.02)  # Cap at 2%
-            
-            # Check total risk
-            if total_risk + risk_dollars > self.capital * 0.06:  # Max 6% total risk
-                break
-                
-            # Calculate shares
-            risk_per_share = abs(signal['entry'] - signal['stop'])
-            shares = int(risk_dollars / risk_per_share)
-            
-            if shares > 0:
-                signal['shares'] = shares
-                signal['risk_dollars'] = risk_dollars
-                trades_to_take.append(signal)
-                total_risk += risk_dollars
-                
-        return trades_to_take
-        
-    def execute_backtest(self, data: pd.DataFrame, symbol: str, date: str) -> Dict:
-        """
-        Run full backtest on a single day
-        """
-        # Scan all strategies
-        signals = self.scan_all_strategies(data, symbol, date)
-        
-        # Decide which trades to take
-        trades = self.decide_trades(signals)
-        
-        # Log decision process
-        decision_log = {
-            'date': date,
-            'symbol': symbol,
-            'signals_generated': len(signals),
-            'trades_taken': len(trades),
-            'strategies_used': list(set([t['strategy'] for t in trades])),
-            'confidence_scores': {t['strategy']: round(t['confidence'], 3) for t in trades},
-            'risk_allocated': sum([t['risk_dollars'] for t in trades])
-        }
-        
-        # Simulate trades and update strategy performance
-        results = []
-        for trade in trades:
-            # Simple simulation (would be more complex in reality)
-            # Assume 40% win rate with 2R average for now
-            win = np.random.random() < 0.4
-            if win:
-                r_multiple = np.random.uniform(1.5, 3.0)
-            else:
-                r_multiple = -1.0
-                
-            trade_result = {
-                **trade,
-                'r_multiple': r_multiple,
-                'pnl': trade['risk_dollars'] * r_multiple
-            }
-            
-            # Update strategy performance
-            strategy = next(s for s in self.strategies if s.name == trade['strategy'])
-            strategy.update_performance(trade_result)
-            
-            results.append(trade_result)
-            
+        self.results = all_results
         return {
-            'decision_log': decision_log,
-            'trades': results,
-            'total_pnl': sum([t['pnl'] for t in results]) if results else 0
+            'strategy': 'FPB',
+            'stocks': len(all_results),
+            'trades': total_trades,
+            'winners': total_winners,
+            'pnl': total_pnl,
+            'results': all_results
         }
+    
+    def run_fpb_live(self) -> List[Dict]:
+        """
+        Run FPB strategy and find TODAY's signals (for paper/live trading)
         
-    def get_performance_summary(self) -> Dict:
-        """Get overall performance summary"""
-        summary = {
-            'total_trades': len(self.taken_trades),
-            'total_pnl': sum([t['pnl'] for t in self.taken_trades]) if self.taken_trades else 0,
-            'strategy_performance': {}
-        }
+        Returns list of trade signals to execute
+        """
+        if not FPB_AVAILABLE:
+            print("❌ fpb_strategy.py not available")
+            return []
         
-        for strategy in self.strategies:
-            if strategy.performance_history:
-                summary['strategy_performance'][strategy.name] = {
-                    'trades': len(strategy.performance_history),
-                    'win_rate': round(strategy.win_rate * 100, 1),
-                    'avg_r': round(strategy.avg_r_multiple, 2),
-                    'confidence': round(strategy.confidence, 3),
-                    'expected_value': round(strategy.get_expected_value(), 2)
-                }
-                
-        return summary
+        print("\n" + "="*70)
+        print("🔴 LIVE MODE - Finding Today's FPB Setups")
+        print("="*70)
         
-    def save_performance(self, filename: str = 'quant_performance.json'):
-        """Save performance to file"""
-        with open(filename, 'w') as f:
-            json.dump({
-                'summary': self.get_performance_summary(),
-                'decision_logs': self.performance_log,
-                'trades': self.taken_trades
-            }, f, indent=2, default=str)
+        # Load watchlist
+        watchlist = load_watchlist_full()
+        if not watchlist:
+            print("❌ No stocks!")
+            return []
+        
+        # Setup strategy
+        fpb_config = FPBConfig(
+            min_gap_pct=3.0,
+            risk_dollars=self.config.risk_per_trade,
+        )
+        strategy = FirstPullbackBuy(config=fpb_config)
+        
+        signals = []
+        
+        for stock in watchlist:
+            symbol = stock.get('symbol', '')
+            gap_pct = stock.get('gap_pct', 0)
             
+            # Skip non-gappers for FPB
+            if abs(gap_pct) < 3.0:
+                continue
+            
+            print(f"\n   Checking {symbol} (gap: {gap_pct:+.1f}%)...")
+            
+            # Get today's data
+            df = download_stock_data(symbol, days=5)
+            if df is None:
+                continue
+            
+            # Prepare data with indicators
+            df = strategy.prepare_data(df)
+            
+            # Get today only
+            today = df.index[-1].date()
+            today_df = df[df.index.date == today]
+            
+            if len(today_df) < 5:
+                continue
+            
+            # Get previous close for gap calculation
+            prev_close = strategy.get_previous_close(df, today)
+            if prev_close is None:
+                continue
+            
+            # Check for setup
+            had_spike, direction = strategy.check_initial_spike(today_df, prev_close)
+            if not had_spike:
+                continue
+            
+            # Find entry
+            early_df = today_df.iloc[:3]
+            spike_high = early_df['high'].max()
+            spike_low = early_df['low'].min()
+            
+            signal = strategy.find_pullback_entry(today_df, direction, spike_high, spike_low)
+            
+            if signal:
+                signal['symbol'] = symbol
+                signal['gap_pct'] = gap_pct
+                signals.append(signal)
+                
+                emoji = "🟢" if direction == "LONG" else "🔴"
+                print(f"   {emoji} SIGNAL: {direction} @ ${signal['entry_price']:.2f}")
+                print(f"      Stop: ${signal['stop_price']:.2f}")
+                print(f"      Target: ${signal['target_r1']:.2f} / ${signal['target_r2']:.2f}")
+                print(f"      Shares: {signal['shares']}")
+        
+        print(f"\n📊 Found {len(signals)} signals")
+        return signals
+    
+    def execute_signals(self, signals: List[Dict]):
+        """Execute signals via Alpaca"""
+        if not self.trader or not self.trader.connected:
+            print("⚠️  Not connected to Alpaca")
+            return
+        
+        if not signals:
+            print("   No signals to execute")
+            return
+        
+        print("\n" + "="*70)
+        print("📤 EXECUTING ORDERS")
+        print("="*70)
+        
+        # Limit to max positions
+        signals = signals[:self.config.max_positions]
+        
+        for signal in signals:
+            symbol = signal['symbol']
+            shares = signal['shares']
+            direction = signal['direction']
+            
+            if direction == "LONG":
+                self.trader.buy(symbol, shares)
+            else:
+                self.trader.sell(symbol, shares)
+    
+    def run(self, execute: bool = False):
+        """
+        Main entry point
+        
+        Args:
+            execute: If True, actually place orders (paper/live)
+        """
+        print("\n" + "="*70)
+        print("🤖 QUANT ENGINE v3.0")
+        print(f"   Mode: {self.config.mode.upper()}")
+        print(f"   Using: YOUR actual fpb_strategy.py")
+        print("="*70)
+        print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        if self.config.mode == "backtest":
+            # Run backtest on historical data
+            return self.run_fpb_backtest()
+        
+        else:
+            # Paper/Live mode - find today's signals
+            signals = self.run_fpb_live()
+            
+            if execute and signals:
+                self.execute_signals(signals)
+            elif signals:
+                print("\n⚠️  Signals found but execute=False")
+                print("   To execute: engine.run(execute=True)")
+            
+            return {'signals': signals}
 
-# Example usage
+
+# ==============================================================================
+# MAIN
+# ==============================================================================
 if __name__ == "__main__":
-    print("Multi-Strategy Quant Engine")
-    print("=" * 50)
+    print("\n" + "="*70)
+    print("🤖 QUANT ENGINE v3.0")
+    print("="*70)
     
-    # Initialize engine
-    engine = QuantEngine(capital=10000)
+    # === CONFIGURATION ===
+    config = QuantConfig(
+        # Get these from Alpaca dashboard
+        alpaca_api_key="YOUR_API_KEY_HERE",
+        alpaca_secret_key="YOUR_SECRET_KEY_HERE",
+        
+        # Mode: "backtest", "paper", or "live"
+        mode="backtest",
+        
+        # Risk settings
+        capital=10000,
+        risk_per_trade=250,
+        max_positions=3,
+    )
     
-    # Add strategies
-    engine.add_strategy(ORB_15Min_Strategy())
-    engine.add_strategy(GapAndGo_Strategy())
-    engine.add_strategy(VWAPBounce_Strategy())
-    engine.add_strategy(BullFlag_Strategy())
+    # === RUN ===
+    engine = QuantEngine(config)
     
-    print("\nEngine Configuration:")
-    print(f"- Capital: ${engine.capital}")
-    print(f"- Max concurrent trades: {engine.max_concurrent_trades}")
-    print(f"- Risk per trade: {engine.risk_per_trade_pct * 100}%")
-    print(f"- Min confidence: {engine.min_confidence_threshold}")
-    print(f"- Strategies loaded: {len(engine.strategies)}")
+    if config.mode == "backtest":
+        # Backtest mode - test on historical data
+        results = engine.run()
+        
+    else:
+        # Paper/Live mode
+        # First run without executing to see signals:
+        results = engine.run(execute=False)
+        
+        # To actually execute trades:
+        # results = engine.run(execute=True)
     
-    print("\nHow it works:")
-    print("1. Scans all strategies simultaneously")
-    print("2. Ranks signals by confidence & expected value")
-    print("3. Allocates capital based on confidence")
-    print("4. Updates strategy performance after each trade")
-    print("5. Strategies that work get more capital")
-    print("6. Strategies that fail get less capital")
-    print("\nThis is a self-learning system!")
+    print("\n✅ Done!")

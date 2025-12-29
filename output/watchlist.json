@@ -1,30 +1,30 @@
 {
-  "last_updated": "2025-12-26T13:06:13.796126",
+  "last_updated": "2025-12-28T20:24:20.470951",
   "premarket_file": null,
   "eod_file": "output/watchlist_eod.json",
-  "count": 11,
+  "count": 9,
   "breakdown": {
     "gap_and_pattern": 0,
     "gap_only": 0,
-    "pattern_only": 11
+    "pattern_only": 9
   },
   "stocks": [
     {
       "symbol": "AMZN",
-      "price": 232.91,
-      "ema9": 229.53,
-      "ema20": 229.11,
-      "ema50": 229.16,
-      "rsi": 55.7,
-      "relative_volume": 0.2,
+      "price": 232.52,
+      "ema9": 229.45,
+      "ema20": 229.08,
+      "ema50": 229.14,
+      "rsi": 55.1,
+      "relative_volume": 0.43,
       "bone_zone": true,
       "uptrend": false,
       "patterns": [
         {
           "pattern": "pullback_to_ma",
           "ma_level": "ema20",
-          "ma_price": 229.11,
-          "bounce_strength": 95.6,
+          "ma_price": 229.08,
+          "bounce_strength": 74.0,
           "score_bonus": 20
         },
         {
@@ -32,7 +32,7 @@
           "range_high": 238.97,
           "range_low": 220.99,
           "range_pct": 8.14,
-          "vol_ratio": 0.9,
+          "vol_ratio": 0.94,
           "score_bonus": 20
         }
       ],
@@ -42,35 +42,35 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:10.764565",
+      "scan_time": "2025-12-28T20:24:17.559296",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "NVDA",
-      "price": 191.36,
-      "ema9": 184.36,
-      "ema20": 182.96,
-      "ema50": 183.65,
-      "rsi": 60.0,
-      "relative_volume": 0.49,
+      "price": 190.53,
+      "ema9": 184.2,
+      "ema20": 182.88,
+      "ema50": 183.62,
+      "rsi": 59.2,
+      "relative_volume": 0.82,
       "bone_zone": true,
       "uptrend": false,
       "patterns": [
         {
           "pattern": "flat_top_breakout",
-          "resistance": 192.29,
+          "resistance": 192.69,
           "touches": 3,
-          "distance_to_breakout_pct": 0.49,
+          "distance_to_breakout_pct": 1.13,
           "score_bonus": 25
         },
         {
           "pattern": "base_breakout",
-          "range_high": 192.29,
+          "range_high": 192.69,
           "range_low": 170.31,
-          "range_pct": 12.91,
-          "vol_ratio": 0.93,
+          "range_pct": 13.14,
+          "vol_ratio": 0.98,
           "score_bonus": 20
         }
       ],
@@ -80,19 +80,19 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:10.927225",
+      "scan_time": "2025-12-28T20:24:17.702568",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "TSLA",
-      "price": 479.6,
-      "ema9": 477.72,
-      "ema20": 464.35,
-      "ema50": 444.06,
-      "rsi": 59.3,
-      "relative_volume": 0.54,
+      "price": 475.19,
+      "ema9": 476.84,
+      "ema20": 463.93,
+      "ema50": 443.88,
+      "rsi": 57.4,
+      "relative_volume": 0.78,
       "bone_zone": true,
       "uptrend": true,
       "patterns": [
@@ -111,19 +111,19 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:11.002922",
+      "scan_time": "2025-12-28T20:24:17.772834",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "PLTR",
-      "price": 191.12,
-      "ema9": 189.63,
-      "ema20": 185.04,
-      "ema50": 181.08,
-      "rsi": 60.1,
-      "relative_volume": 0.39,
+      "price": 188.71,
+      "ema9": 189.14,
+      "ema20": 184.82,
+      "ema50": 180.99,
+      "rsi": 57.1,
+      "relative_volume": 0.73,
       "bone_zone": true,
       "uptrend": true,
       "patterns": [
@@ -132,7 +132,7 @@
           "pole_low": 176.5,
           "pole_high": 198.88,
           "pole_pct": 12.68,
-          "flag_low": 190.27,
+          "flag_low": 188.62,
           "flag_high": 198.88,
           "score_bonus": 30
         }
@@ -142,19 +142,19 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:11.300383",
+      "scan_time": "2025-12-28T20:24:18.028812",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "AFRM",
-      "price": 75.7,
-      "ema9": 74.54,
-      "ema20": 72.56,
+      "price": 75.81,
+      "ema9": 74.56,
+      "ema20": 72.57,
       "ema50": 72.41,
-      "rsi": 64.0,
-      "relative_volume": 0.14,
+      "rsi": 64.2,
+      "relative_volume": 0.42,
       "bone_zone": true,
       "uptrend": true,
       "patterns": [
@@ -173,19 +173,19 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:11.993750",
+      "scan_time": "2025-12-28T20:24:18.688937",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "RIVN",
-      "price": 21.0,
-      "ema9": 20.33,
-      "ema20": 18.97,
+      "price": 20.9,
+      "ema9": 20.3,
+      "ema20": 18.96,
       "ema50": 16.97,
-      "rsi": 63.5,
-      "relative_volume": 0.21,
+      "rsi": 62.9,
+      "relative_volume": 0.43,
       "bone_zone": true,
       "uptrend": true,
       "patterns": [
@@ -204,19 +204,19 @@
       ],
       "score": 100,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:13.137543",
+      "scan_time": "2025-12-28T20:24:19.818867",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "GOOGL",
-      "price": 313.67,
-      "ema9": 310.85,
-      "ema20": 308.5,
+      "price": 313.51,
+      "ema9": 310.81,
+      "ema20": 308.49,
       "ema50": 292.9,
-      "rsi": 43.4,
-      "relative_volume": 0.18,
+      "rsi": 43.2,
+      "relative_volume": 0.33,
       "bone_zone": true,
       "uptrend": true,
       "patterns": [
@@ -225,7 +225,7 @@
           "range_high": 326.64,
           "range_low": 296.12,
           "range_pct": 10.31,
-          "vol_ratio": 0.79,
+          "vol_ratio": 0.82,
           "score_bonus": 20
         }
       ],
@@ -234,19 +234,19 @@
       ],
       "score": 90,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:10.671786",
+      "scan_time": "2025-12-28T20:24:17.451266",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "MSFT",
-      "price": 486.93,
-      "ema9": 484.76,
-      "ema20": 485.51,
-      "ema50": 493.53,
-      "rsi": 53.6,
-      "relative_volume": 0.16,
+      "price": 487.71,
+      "ema9": 484.91,
+      "ema20": 485.58,
+      "ema50": 493.56,
+      "rsi": 54.4,
+      "relative_volume": 0.38,
       "bone_zone": false,
       "uptrend": false,
       "patterns": [
@@ -255,7 +255,7 @@
           "range_high": 493.5,
           "range_low": 470.88,
           "range_pct": 4.8,
-          "vol_ratio": 0.96,
+          "vol_ratio": 1.0,
           "score_bonus": 20
         }
       ],
@@ -264,19 +264,19 @@
       ],
       "score": 80,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:10.603386",
+      "scan_time": "2025-12-28T20:24:17.385158",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
     },
     {
       "symbol": "AMD",
-      "price": 215.29,
-      "ema9": 213.04,
-      "ema20": 215.18,
-      "ema50": 215.92,
-      "rsi": 47.2,
-      "relative_volume": 0.36,
+      "price": 214.99,
+      "ema9": 212.98,
+      "ema20": 215.15,
+      "ema50": 215.91,
+      "rsi": 46.9,
+      "relative_volume": 0.56,
       "bone_zone": false,
       "uptrend": false,
       "patterns": [
@@ -285,7 +285,7 @@
           "range_high": 225.98,
           "range_low": 197.53,
           "range_pct": 14.4,
-          "vol_ratio": 0.87,
+          "vol_ratio": 0.9,
           "score_bonus": 20
         }
       ],
@@ -294,66 +294,7 @@
       ],
       "score": 80,
       "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:11.065079",
-      "source": "eod",
-      "has_gap": false,
-      "has_pattern": true
-    },
-    {
-      "symbol": "SMMT",
-      "price": 18.18,
-      "ema9": 17.92,
-      "ema20": 17.86,
-      "ema50": 18.59,
-      "rsi": 48.9,
-      "relative_volume": 0.19,
-      "bone_zone": true,
-      "uptrend": false,
-      "patterns": [
-        {
-          "pattern": "base_breakout",
-          "range_high": 19.1,
-          "range_low": 16.76,
-          "range_pct": 13.96,
-          "vol_ratio": 0.85,
-          "score_bonus": 20
-        }
-      ],
-      "pattern_names": [
-        "base_breakout"
-      ],
-      "score": 80,
-      "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:13.414098",
-      "source": "eod",
-      "has_gap": false,
-      "has_pattern": true
-    },
-    {
-      "symbol": "AAPL",
-      "price": 274.59,
-      "ema9": 273.95,
-      "ema20": 274.49,
-      "ema50": 269.26,
-      "rsi": 39.4,
-      "relative_volume": 0.19,
-      "bone_zone": false,
-      "uptrend": false,
-      "patterns": [
-        {
-          "pattern": "pullback_to_ma",
-          "ma_level": "ema20",
-          "ma_price": 274.49,
-          "bounce_strength": 46.9,
-          "score_bonus": 20
-        }
-      ],
-      "pattern_names": [
-        "pullback_to_ma"
-      ],
-      "score": 70,
-      "scan_type": "eod_daily",
-      "scan_time": "2025-12-26T13:06:10.485889",
+      "scan_time": "2025-12-28T20:24:17.837044",
       "source": "eod",
       "has_gap": false,
       "has_pattern": true
