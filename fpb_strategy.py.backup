@@ -55,10 +55,10 @@ def load_watchlist_symbols(watchlist_path: str = None) -> List[str]:
     # Try to find watchlist automatically
     possible_paths = [
         watchlist_path,
-        "C:/Users/Hassan/ORB-Bot/output/watchlist.json",           # NEW location first!
-        "C:/Users/Hassan/ORB-Bot/scanners/output/watchlist.json",  # Old location second
-        "./output/watchlist.json",
+        "C:/Users/Hassan/ORB-Bot/scanners/output/watchlist.json",
         "./scanners/output/watchlist.json",
+        "./output/watchlist.json",
+        "../scanners/output/watchlist.json",
     ]
     
     for path in possible_paths:
