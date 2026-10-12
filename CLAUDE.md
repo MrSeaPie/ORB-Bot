@@ -40,10 +40,33 @@ Principles: each strategy must be profitable on its own before it goes into the 
 always test on data the bot has not seen (avoid overfitting); "sit out" is a valid choice;
 do not use a chatbot as the live trading brain — the bot runs on testable rules.
 
-## Current Status (as of 2026-10-09)
+## Current Status (as of 2026-10-12)
 - Last code work: 2026-01-04 ("Paper Trade option for FPB done").
 - Latest FPB backtest: only 15 trades, 53% win rate, +5R. Too small a sample to trust.
 - No paper-trading results are saved in the repo.
+- The user's PC copy is NEWER than GitHub and has real Alpaca keys typed into the code.
+  Do not upload it to GitHub until the keys are moved out (see fix 4 below).
+- 2026-10-09: paper bot left stuck positions in MVST, SOFI, GOOGL. User told to close them
+  manually in Alpaca and to NOT run the bot again until fixes 1–3 below are done.
+
+## Paper-trading bugs: fix these first (plumbing only, don't change the strategy)
+Found 2026-10-09 to 2026-10-12, in `fpb_paper_trader.py`:
+1. **Shorting causes messes** → add a `ALLOW_SHORTS = False` switch; trade longs only for now.
+2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), so if the Alpaca
+   call fails the bot thinks it owns nothing and can double up. Make it stop instead.
+   Re-check real Alpaca positions and open orders before every scan and every order.
+3. **No "can I afford this?" check** → share size comes only from risk ÷ stop distance.
+   A tight stop can mean a huge order. Cap shares by buying power and a max $ per trade.
+4. **Keys in code** → load `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` from a `.env` file that
+   is listed in `.gitignore`. Only after this, push to GitHub.
+5. **No stop-loss or target orders are sent to Alpaca** → stops and targets are only printed.
+   Use bracket orders (entry + stop + target in one order) so every trade is protected
+   even if the bot crashes.
+6. **Stale signals** → the scan can find a pullback that happened hours ago and buy at
+   today's market price with the old share size. Only act on signals from the last bar or two.
+7. Remove hardcoded paths (`BOT_DIR = "C:/Users/Hassan/ORB-Bot"`).
+After fixes: run longs only and watch the first hour. After each fill, check that Alpaca and
+the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
 
 ## Known issues
 - Hardcoded Windows paths (e.g. `BOT_DIR = "C:/Users/Hassan/ORB-Bot"` in `fpb_paper_trader.py`).
@@ -56,10 +79,13 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
 - 2026-10-09: Resumed project. Plan to switch historical data to Alpaca (years of minute bars)
   so backtests have hundreds of trades. Agreed on the strategy-selector goal above.
 - 2026-10-09: Created this CLAUDE.md as cross-chat memory.
+- 2026-10-12: Work happens in a Claude Code session on the user's PC, opened on the
+  local ORB-Bot folder (the PC copy is the newest). One AI tool only, no Codex.
+  Fix the paper-trading bugs before any new strategy work.
 
 ## Next Steps
-1. Clean up: remove hardcoded paths, load keys from environment, fix `requirements.txt`,
-   add `.gitignore`, delete junk files.
+1. Fix the paper-trading bugs above (in that order), then push to GitHub.
+   Also: fix `requirements.txt`, add `.gitignore`, delete junk files.
 2. Add Alpaca historical data loader; re-run FPB backtest on a large sample.
 3. Build a "market weather" (regime) detector that labels each day.
 4. Test ORB and FPB separately per regime.
