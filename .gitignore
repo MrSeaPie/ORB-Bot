@@ -1,0 +1,11 @@
+# Secrets: never upload these
+.env
+*.env
+secrets*
+
+# Python junk
+__pycache__/
+*.pyc
+
+# Backup copies
+*.backup
