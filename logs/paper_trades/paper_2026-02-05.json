@@ -1,0 +1,38 @@
+[
+  {
+    "type": "ENTRY",
+    "symbol": "GOOGL",
+    "direction": "SHORT",
+    "shares": 21,
+    "signal_price": 322.8500061035156,
+    "fill_price": 322.05,
+    "slippage": 0.8000061035156136,
+    "slippage_pct": 0.24779497859421046,
+    "stop": 327.0183540204439,
+    "target_r1": 316.5974842281232,
+    "target_r2": 310.3449623527308,
+    "timestamp": "2026-02-05T09:50:10.589668"
+  },
+  {
+    "type": "SELL_R1",
+    "symbol": "GOOGL",
+    "shares": 10,
+    "target_price": 316.5974842281232,
+    "fill_price": 316.345,
+    "slippage": 0,
+    "pnl": 57.04999999999984,
+    "timestamp": "2026-02-05T10:10:46.915986"
+  },
+  {
+    "type": "SELL_STOP",
+    "symbol": "GOOGL",
+    "shares": 11,
+    "stop_price": 322.05,
+    "fill_price": 316.425,
+    "slippage": 0,
+    "pnl": 61.875,
+    "total_pnl": 118.92499999999984,
+    "was_breakeven": true,
+    "timestamp": "2026-02-05T10:10:57.992629"
+  }
+]

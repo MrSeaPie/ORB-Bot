@@ -1,0 +1,42 @@
+[
+  {
+    "type": "SIGNAL",
+    "symbol": "NIO",
+    "direction": "LONG",
+    "gap_pct": 4.36,
+    "entry_price": 5.24,
+    "stop_price": 5.17,
+    "target_r1": 5.36,
+    "target_r2": 5.47,
+    "shares": 1328,
+    "risk_dollars": 99.94,
+    "ema_level": "EMA9",
+    "account_equity": 10000.0,
+    "risk_percent": 1.0,
+    "timestamp": "2026-01-04T21:30:25.033905"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "NIO",
+    "direction": "LONG",
+    "shares": 1328,
+    "price": 5.244999885559082,
+    "timestamp": "2026-01-04T21:30:25.114247"
+  },
+  {
+    "type": "SIGNAL",
+    "symbol": "NIO",
+    "direction": "LONG",
+    "gap_pct": 4.36,
+    "entry_price": 5.24,
+    "stop_price": 5.17,
+    "target_r1": 5.36,
+    "target_r2": 5.47,
+    "shares": 1328,
+    "risk_dollars": 99.94,
+    "ema_level": "EMA9",
+    "account_equity": 10000.0,
+    "risk_percent": 1.0,
+    "timestamp": "2026-01-04T21:34:20.658926"
+  }
+]

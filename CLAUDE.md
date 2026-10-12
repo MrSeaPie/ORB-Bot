@@ -44,21 +44,26 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
 - Last code work: 2026-01-04 ("Paper Trade option for FPB done").
 - Latest FPB backtest: only 15 trades, 53% win rate, +5R. Too small a sample to trust.
 - No paper-trading results are saved in the repo.
-- The user's PC copy is NEWER than GitHub and has real Alpaca keys typed into the code.
-  Do not upload it to GitHub until the keys are moved out (see fix 4 below).
+- The user's PC copy is NEWER than GitHub. Keys were moved out of the code into `.env`
+  on 2026-10-12, so it is now safe to upload.
+- Paper-trade logs exist in `logs/paper_trades/` (Jan 4 – Feb 5, 2026), only a handful of trades.
 - 2026-10-09: paper bot left stuck positions in MVST, SOFI, GOOGL. User told to close them
   manually in Alpaca and to NOT run the bot again until fixes 1–3 below are done.
 
 ## Paper-trading bugs: fix these first (plumbing only, don't change the strategy)
 Found 2026-10-09 to 2026-10-12, in `fpb_paper_trader.py`:
 1. **Shorting causes messes** → add a `ALLOW_SHORTS = False` switch; trade longs only for now.
+   Root cause found 2026-10-12: every exit (`_exit_r1/_r2/stop/trail/EOD`) calls
+   `self.alpaca.sell()` even for SHORT positions. Exiting a short must BUY to cover;
+   selling again makes the short bigger while the bot thinks it is flat.
 2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), so if the Alpaca
    call fails the bot thinks it owns nothing and can double up. Make it stop instead.
    Re-check real Alpaca positions and open orders before every scan and every order.
 3. **No "can I afford this?" check** → share size comes only from risk ÷ stop distance.
    A tight stop can mean a huge order. Cap shares by buying power and a max $ per trade.
-4. **Keys in code** → load `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` from a `.env` file that
-   is listed in `.gitignore`. Only after this, push to GitHub.
+4. ✅ DONE 2026-10-12. **Keys in code** → keys now live only in `.env` (git-ignored);
+   `fpb_paper_trader.py` reads them at startup. `.env.example` shows the format.
+   Verified the real keys were never in git history.
 5. **No stop-loss or target orders are sent to Alpaca** → stops and targets are only printed.
    Use bracket orders (entry + stop + target in one order) so every trade is protected
    even if the bot crashes.

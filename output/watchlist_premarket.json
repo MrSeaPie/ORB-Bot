@@ -1,0 +1,43 @@
+{
+  "scan_time": "2026-05-06T08:56:18.557987",
+  "scan_type": "premarket",
+  "filters": {
+    "min_gap_pct": 3.0,
+    "min_price": 5.0,
+    "max_price": 500.0,
+    "min_avg_volume": 500000
+  },
+  "count": 2,
+  "stocks": [
+    {
+      "symbol": "MSTR",
+      "prev_close": 183.8,
+      "current_price": 189.55,
+      "gap_pct": 3.13,
+      "volume": 14980800,
+      "avg_volume": 16487240,
+      "relative_volume": 0.91,
+      "has_news": false,
+      "headline": "",
+      "catalyst_type": "none",
+      "score": 30,
+      "scan_type": "premarket",
+      "scan_time": "2026-05-06T08:56:15.796496"
+    },
+    {
+      "symbol": "ARM",
+      "prev_close": 203.26,
+      "current_price": 210.1,
+      "gap_pct": 3.36,
+      "volume": 7531000,
+      "avg_volume": 6634560,
+      "relative_volume": 1.14,
+      "has_news": false,
+      "headline": "",
+      "catalyst_type": "none",
+      "score": 30,
+      "scan_type": "premarket",
+      "scan_time": "2026-05-06T08:56:16.431840"
+    }
+  ]
+}

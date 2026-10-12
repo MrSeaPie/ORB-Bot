@@ -1,0 +1,28 @@
+[
+  {
+    "type": "ENTRY",
+    "symbol": "SOFI",
+    "direction": "SHORT",
+    "shares": 214,
+    "signal_price": 22.21500015258789,
+    "fill_price": 22.244999999999997,
+    "slippage": 0.029999847412106817,
+    "slippage_pct": 0.13504320146768958,
+    "stop": 22.638945032488976,
+    "target_r1": 21.579082832736262,
+    "target_r2": 20.943165512884633,
+    "timestamp": "2026-02-02T10:00:15.035739"
+  },
+  {
+    "type": "SELL_STOP",
+    "symbol": "SOFI",
+    "shares": 214,
+    "stop_price": 22.638945032488976,
+    "fill_price": 22.645,
+    "slippage": 1.295763047358939,
+    "pnl": -85.60000000000045,
+    "total_pnl": -85.60000000000045,
+    "was_breakeven": false,
+    "timestamp": "2026-02-02T10:40:38.771751"
+  }
+]

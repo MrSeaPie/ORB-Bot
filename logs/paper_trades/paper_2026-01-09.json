@@ -1,0 +1,28 @@
+[
+  {
+    "type": "ENTRY",
+    "symbol": "MVST",
+    "direction": "LONG",
+    "shares": 556,
+    "signal_price": 3.6298999786376953,
+    "fill_price": 3.64,
+    "slippage": 0.010100021362304812,
+    "slippage_pct": 0.27824516988744574,
+    "stop": 3.5564399428367617,
+    "target_r1": 3.7400900323390958,
+    "target_r2": 3.850280086040496,
+    "timestamp": "2026-01-09T09:40:10.709632"
+  },
+  {
+    "type": "SELL_STOP",
+    "symbol": "MVST",
+    "shares": 556,
+    "stop_price": 3.5564399428367617,
+    "fill_price": 3.5549999999999997,
+    "slippage": 0.8006082172396525,
+    "pnl": -47.260000000000225,
+    "total_pnl": -47.260000000000225,
+    "was_breakeven": false,
+    "timestamp": "2026-01-09T09:51:38.074759"
+  }
+]

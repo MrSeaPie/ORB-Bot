@@ -1,0 +1,51 @@
+[
+  {
+    "type": "ENTRY",
+    "symbol": "NIO",
+    "direction": "LONG",
+    "shares": 1328,
+    "expected_price": 5.244999885559082,
+    "fill_price": 5.150000095367432,
+    "slippage": 0.09499979019165039,
+    "stop": 5.169745679673653,
+    "target_r1": 5.357881194387225,
+    "target_r2": 5.470762503215369,
+    "timestamp": "2026-01-05T09:16:30.406459"
+  },
+  {
+    "type": "SELL_STOP",
+    "symbol": "NIO",
+    "shares": 1328,
+    "price": 5.150000095367432,
+    "pnl": 0.0,
+    "total_pnl": 0.0,
+    "was_breakeven": false,
+    "timestamp": "2026-01-05T09:16:32.155159"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "RDDT",
+    "direction": "LONG",
+    "shares": 30,
+    "signal_price": 245.05999755859375,
+    "fill_price": 245.04455473623048,
+    "slippage": 0.015442822363269215,
+    "slippage_pct": 0.006301649603002564,
+    "stop": 241.81793756103517,
+    "target_r1": 249.9230875549316,
+    "target_r2": 254.7861775512695,
+    "timestamp": "2026-01-05T09:41:20.186708"
+  },
+  {
+    "type": "SELL_STOP",
+    "symbol": "RDDT",
+    "shares": 30,
+    "stop_price": 241.81793756103517,
+    "fill_price": 241.19180693957597,
+    "slippage": 18.783918643775905,
+    "pnl": -115.58243389963536,
+    "total_pnl": -115.58243389963536,
+    "was_breakeven": false,
+    "timestamp": "2026-01-05T10:26:36.581584"
+  }
+]
