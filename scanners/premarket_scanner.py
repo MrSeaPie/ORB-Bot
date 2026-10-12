@@ -50,6 +50,11 @@ except ImportError:
     ALPACA_SECRET_KEY = os.getenv('ALPACA_SECRET_KEY', '')
     DEFAULT_UNIVERSE = ["NVDA", "AMD", "TSLA", "COIN", "MSTR"]
 
+# File locations, found from this file so scans work from any folder
+SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
+UNIVERSE_FILE = os.path.join(SCANNER_DIR, 'universe.txt')
+OUTPUT_DIR = os.path.join(os.path.dirname(SCANNER_DIR), 'output')
+
 
 # ==============================================================================
 # PRE-MARKET SCANNER CLASS
@@ -93,8 +98,8 @@ class PreMarketScanner:
     def get_universe(self) -> List[str]:
         """Get list of stocks to scan"""
         # Check for custom universe file
-        if os.path.exists('universe.txt'):
-            with open('universe.txt', 'r') as f:
+        if os.path.exists(UNIVERSE_FILE):
+            with open(UNIVERSE_FILE, 'r') as f:
                 symbols = []
                 for line in f:
                     line = line.strip()
@@ -424,7 +429,7 @@ def run_premarket_scan(require_news: bool = False, save: bool = True) -> List[Di
     
     # Save to file
     if save and results:
-        os.makedirs('output', exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         output = {
             'scan_time': datetime.now().isoformat(),
             'scan_type': 'premarket',
@@ -438,10 +443,11 @@ def run_premarket_scan(require_news: bool = False, save: bool = True) -> List[Di
             'stocks': results
         }
         
-        with open('output/watchlist_premarket.json', 'w') as f:
+        output_file = os.path.join(OUTPUT_DIR, 'watchlist_premarket.json')
+        with open(output_file, 'w') as f:
             json.dump(output, f, indent=2)
-        
-        print(f"\n💾 Saved to output/watchlist_premarket.json")
+
+        print(f"\n💾 Saved to {output_file}")
     
     return results
 

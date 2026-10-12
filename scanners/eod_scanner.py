@@ -36,6 +36,11 @@ except ImportError:
     MIN_AVG_DAILY_VOLUME = 500000
     DEFAULT_UNIVERSE = ["NVDA", "AMD", "TSLA", "COIN", "MSTR"]
 
+# File locations, found from this file so scans work from any folder
+SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
+UNIVERSE_FILE = os.path.join(SCANNER_DIR, 'universe.txt')
+OUTPUT_DIR = os.path.join(os.path.dirname(SCANNER_DIR), 'output')
+
 
 # ==============================================================================
 # EOD PATTERN SCANNER
@@ -57,8 +62,8 @@ class EODScanner:
         
     def get_universe(self) -> List[str]:
         """Get list of stocks to scan"""
-        if os.path.exists('universe.txt'):
-            with open('universe.txt', 'r') as f:
+        if os.path.exists(UNIVERSE_FILE):
+            with open(UNIVERSE_FILE, 'r') as f:
                 symbols = []
                 for line in f:
                     line = line.strip()
@@ -460,18 +465,19 @@ def run_eod_scan(save: bool = True) -> List[Dict]:
     
     # Save to file
     if save and results:
-        os.makedirs('output', exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         output = {
             'scan_time': datetime.now().isoformat(),
             'scan_type': 'eod_daily',
             'count': len(results),
             'stocks': results
         }
-        
-        with open('output/watchlist_eod.json', 'w') as f:
+
+        output_file = os.path.join(OUTPUT_DIR, 'watchlist_eod.json')
+        with open(output_file, 'w') as f:
             json.dump(output, f, indent=2)
-        
-        print(f"\n💾 Saved to output/watchlist_eod.json")
+
+        print(f"\n💾 Saved to {output_file}")
     
     return results
 

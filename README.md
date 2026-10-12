@@ -1,44 +1,49 @@
-# ORB Trading Bot Framework
+# ORB-Bot
 
-## Quick Start
+A day-trading bot for US stocks. It paper-trades (fake money) through Alpaca.
+The current strategy is **FPB (First Pullback Buy)**.
 
-1. Run the backtest:
-```bash
-python run_framework.py
+> **Status:** not validated yet, and the paper trader has known bugs (see `CLAUDE.md`).
+> Don't run it until those are fixed, and never with real money.
+
+## How the pieces fit
+
 ```
-
-2. Check results in `logs/trades/` folder (CSV files)
-
-3. Tune parameters in `run_framework.py` and run again!
-
-## What's New
-
-- **TradeLogger**: Records every trade with full context
-- **PerformanceAnalyzer**: Shows what works and what doesn't
-- **Modular Design**: Easy to test different configs
-
-## How To Tune
-
-Open `run_framework.py` and change the numbers:
-```python
-cfg = ORBConfig(
-    trade_start="09:40",        # Enter earlier
-    base_tight_frac=0.8,        # Tighter base
-    base_near_vwap_atr=0.3,     # Closer to VWAP
-    vwap_stop_buffer_atr=0.20,  # Wider stop
-)
+scanners/run_daily.py      finds gapping stocks, writes output/watchlist.json
+        ↓
+fpb_paper_trader.py        watches those stocks, uses the rules in fpb_strategy.py,
+        ↓                  places orders on your Alpaca PAPER account
+logs/paper_trades/         one log file per trading day
 ```
 
 ## Files
 
-- `framework.py` - Core engine (TradeLogger, Analyzer, Strategy)
-- `run_framework.py` - How to run backtests
-- `logs/trades/` - Your trade results (CSV files)
+| File / folder | What it does |
+|---|---|
+| `fpb_strategy.py` | The FPB rules (gap → spike → pullback to EMA → entry). Used by both the backtest and the paper trader. |
+| `fpb_paper_trader.py` | Runs FPB on the Alpaca paper account. |
+| `run_fpb_backtest.py` | Tests FPB on past price data. Results go to `logs/fpb_trades/`. |
+| `scanners/` | Pre-market gap scanner, end-of-day pattern scanner and the merge step. Stock list: `scanners/universe.txt`. Settings: `scanners/config.py`. |
+| `output/` | The latest watchlists the scanners wrote. |
+| `logs/` | Paper-trade logs and backtest results. |
+| `FPB_MASTER_REFERENCE.md` | The full how-to: commands, settings, strategy rules. |
+| `CLAUDE.md` | Project memory that Claude reads at the start of every chat: status, bugs, plan. |
 
-## Next Steps
+## One-time setup
 
-1. Run default config
-2. Check CSV in Excel
-3. Find patterns
-4. Adjust parameters
-5. Run again and compare!
+1. Copy `.env.example` to `.env` and paste your Alpaca **paper** keys into it.
+   `.env` never gets uploaded to GitHub.
+2. Install the packages into the project's Python:
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+## Daily commands
+
+Run these in PowerShell from the `ORB-Bot` folder:
+
+```powershell
+.\.venv\Scripts\Activate.ps1          # use the project's Python
+python scanners\run_daily.py --now    # 9:25 AM: build today's watchlist
+python fpb_paper_trader.py            # 9:35 AM: scan, trade, monitor, exit at 3:55 PM
+```

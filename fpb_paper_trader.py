@@ -26,7 +26,7 @@ COMMANDS:
   python fpb_paper_trader.py slippage     # All-time slippage analysis
 
 DAILY ROUTINE (SIMPLIFIED):
-  9:25 AM  - Run scanner: cd scanners && python run_daily.py --now
+  9:25 AM  - Run scanner: python scanners/run_daily.py --now
   9:35 AM  - Run: python fpb_paper_trader.py
              (That's it! Bot handles everything until 4 PM)
 
@@ -87,7 +87,8 @@ USE_EMA_TRAIL = True            # Trail with 9 EMA after R1
 SIM_SLIPPAGE_PCT = 0.15         # Simulate 0.15% slippage in sim mode
 
 # === FILE PATHS ===
-BOT_DIR = "C:/Users/Hassan/ORB-Bot"
+# Found from this file's location, so the bot runs from any folder or computer
+BOT_DIR = str(Path(__file__).resolve().parent)
 LOG_DIR = f"{BOT_DIR}/logs/paper_trades"
 STATE_FILE = f"{BOT_DIR}/logs/paper_trades/position_state.json"
 
@@ -1372,7 +1373,7 @@ def cmd_help():
 ║    ✅ Daily loss limit ($500)                                        ║
 ║                                                                      ║
 ║  DAILY ROUTINE:                                                      ║
-║    9:25 AM  - Run scanner: cd scanners && python run_daily.py --now  ║
+║    9:25 AM  - Run scanner: python scanners/run_daily.py --now       ║
 ║    9:35 AM  - Run: python fpb_paper_trader.py                        ║
 ║              (That's it! Bot does everything until 4 PM)             ║
 ║                                                                      ║

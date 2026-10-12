@@ -52,13 +52,10 @@ def load_watchlist_symbols(watchlist_path: str = None) -> List[str]:
     Returns:
         List of stock symbols to trade
     """
-    # Try to find watchlist automatically
+    # The scanner always writes to the output/ folder next to this file
     possible_paths = [
         watchlist_path,
-        "C:/Users/Hassan/ORB-Bot/output/watchlist.json",           # NEW location first!
-        "C:/Users/Hassan/ORB-Bot/scanners/output/watchlist.json",  # Old location second
-        "./output/watchlist.json",
-        "./scanners/output/watchlist.json",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "watchlist.json"),
     ]
     
     for path in possible_paths:
@@ -78,8 +75,7 @@ def load_watchlist_symbols(watchlist_path: str = None) -> List[str]:
     # Fallback if no watchlist found
     print("⚠️  No scanner watchlist found!")
     print("   Run the scanner first:")
-    print("   cd C:\\Users\\Hassan\\ORB-Bot\\scanners")
-    print("   python run_daily.py --now")
+    print("   python scanners/run_daily.py --now")
     print("\n   Using fallback stocks for now...")
     return ["NVDA", "AMD", "TSLA", "COIN", "MSTR"]
 

@@ -3,6 +3,9 @@
 *.env
 secrets*
 
+# Personal notes: stay on the PC while the GitHub repo is public
+PROJECT_HISTORY.md
+
 # Python junk
 __pycache__/
 *.pyc

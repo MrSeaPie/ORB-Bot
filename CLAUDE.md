@@ -3,26 +3,37 @@
 Claude reads this file at the start of every chat. Keep it up to date: at the end of
 each work session, update **Current Status**, **Decisions Log**, and **Next Steps**.
 
-## About the user
+Full background (strategy rules, every past result and error, vision): `PROJECT_HISTORY.md`.
+It's kept on the PC only and is git-ignored, because the GitHub repo is **public** and the doc
+has personal details. If it disagrees with the code, trust the code and tell the user.
+
+## About the user (Hassan)
 - Comes up with trading concepts; does **not** write code.
 - Explain everything in plain, simple language. Walk through steps like teaching a beginner.
 - Avoid jargon; when a trading or coding term is needed, define it in one line.
-- Originally ran the bot on Windows (`C:\Users\Hassan\ORB-Bot`, PowerShell).
+- Be blunt and honest; don't flatter results. Test before saying something works.
+- Has a full-time job: can't babysit the bot or type commands at exact times.
+- Runs Windows (`C:\Users\Hassan\ORB-Bot`, PowerShell 5.1: no `&&`, use `;`).
+- Python: use the project's `.venv` (Python 3.13, has alpaca-py, pandas, yfinance).
+  PROJECT_HISTORY.md says Python 3.12, but the working `.venv` is 3.13.
 
 ## What this project is
-A day-trading bot for US stocks, paper-trading through Alpaca.
+A day-trading bot for US stocks, paper-trading through Alpaca. Strategies come from
+Bulls Bootcamp (instructor Kunal).
 
-- **ORB (Opening Range Breakout)** — Nov 2025. Trade breakouts of the first minutes' range.
-  Files: `Elite_orb_strategy.py`, `simple_framework.py`, `Quant_engine.py`, `config/paper.yaml`.
-  Mostly shelved in favor of FPB.
-- **FPB (First Pullback Buy)** — Dec 2025–Jan 2026, the current focus.
-  Stock gaps and spikes at the open → wait for a pullback to the EMA → enter with a
-  confirmation candle. Picks LONG or SHORT itself from the direction of the opening spike.
-  - Strategy + backtest: `fpb_strategy.py`, `run_fpb_backtest.py`, `test_fpb.py`
-  - Paper trader (Alpaca): `fpb_paper_trader.py` (commands: run, `monitor`, `close`, `log`)
-  - Full how-to: `FPB_MASTER_REFERENCE.md`
-- **Scanners** — `scanners/`: pre-market gappers, end-of-day patterns, merged watchlist
-  (`scanners/run_daily.py --now`). Watchlists are written to `output/` and `scanners/output/`.
+The pipeline (these are the ONLY code files, after the 2026-10-12 cleanup):
+- `scanners/run_daily.py --now` → `premarket_scanner.py` (gaps) + `eod_scanner.py` (daily
+  patterns) → `merge_watchlists.py` → `output/watchlist.json`. Settings: `scanners/config.py`.
+  Stock list: `scanners/universe.txt`. Works from any folder; `output/` is the only watchlist folder.
+- `fpb_strategy.py`: **FPB (First Pullback Buy)** rules, the current focus. Gap + spike at
+  the open → pullback to 9/20 EMA → confirmation candle. Picks LONG or SHORT from the spike.
+- `fpb_paper_trader.py` (v3): paper trades FPB on Alpaca. Commands: (none)=run, `scan`,
+  `monitor`, `status`, `close`, `log`, `slippage`, `help`. Logs to `logs/paper_trades/`.
+- `run_fpb_backtest.py`: backtest. Logs to `logs/fpb_trades/`.
+- How-to for the user: `FPB_MASTER_REFERENCE.md`. Overview: `README.md`.
+
+ORB (Opening Range Breakout, Nov 2025) was shelved; its code was removed on 2026-10-12
+(still in git history, e.g. commit `ac3d2db`). Rebuild it properly when the selector needs it.
 
 Data source today: `yfinance` (free; only ~7 days of 1-min bars / ~60 days of 5-min bars).
 
@@ -32,7 +43,8 @@ trending down, choppy, high volatility) and decides on its own whether to go lon
 which strategy to use (ORB, FPB, ...), or to sit out.
 
 Agreed approach, simplest first:
-1. Rule-based selector (user's ideas → written rules).
+1. Rule-based selector (user's ideas → written rules). Kunal's tree is a first version:
+   stock pops → consolidates sideways = ORB; pulls back to 9/20 EMA = FPB; tanks = skip.
 2. Track-record lookup (which strategy worked on similar past days).
 3. Machine learning only later, with lots of data and out-of-sample testing.
 
@@ -41,58 +53,71 @@ always test on data the bot has not seen (avoid overfitting); "sit out" is a val
 do not use a chatbot as the live trading brain — the bot runs on testable rules.
 
 ## Current Status (as of 2026-10-12)
-- Last code work: 2026-01-04 ("Paper Trade option for FPB done").
-- Latest FPB backtest: only 15 trades, 53% win rate, +5R. Too small a sample to trust.
-- No paper-trading results are saved in the repo.
-- The user's PC copy is NEWER than GitHub. Keys were moved out of the code into `.env`
-  on 2026-10-12, so it is now safe to upload.
-- Paper-trade logs exist in `logs/paper_trades/` (Jan 4 – Feb 5, 2026), only a handful of trades.
-- 2026-10-09: paper bot left stuck positions in MVST, SOFI, GOOGL. User told to close them
-  manually in Alpaca and to NOT run the bot again until fixes 1–3 below are done.
+- Paper trading ran Jan 4 – Feb 5, 2026 (logs in `logs/paper_trades/`): ~3 real round trips.
+  Plumbing bugs left stuck positions (MVST long 805, SOFI short, GOOGL short 42), about
+  -$3.4k unrealized, which blocked every later trade. User to close them by hand in Alpaca.
+  **Do NOT run the bot until bugs 1–3 below are fixed.**
+- Strategy is unvalidated: every backtest sample is under 75 trades.
+- 2026-10-12 done: keys moved to `.env`; repo cleaned (99 unused files removed);
+  paths made relative; requirements.txt fixed; docs rewritten; all pushed to GitHub.
+- The live `fpb_strategy.py` has NO low-volume-pullback check (Kunal's rule / "V4").
 
 ## Paper-trading bugs: fix these first (plumbing only, don't change the strategy)
-Found 2026-10-09 to 2026-10-12, in `fpb_paper_trader.py`:
-1. **Shorting causes messes** → add a `ALLOW_SHORTS = False` switch; trade longs only for now.
-   Root cause found 2026-10-12: every exit (`_exit_r1/_r2/stop/trail/EOD`) calls
-   `self.alpaca.sell()` even for SHORT positions. Exiting a short must BUY to cover;
-   selling again makes the short bigger while the bot thinks it is flat.
-2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), so if the Alpaca
-   call fails the bot thinks it owns nothing and can double up. Make it stop instead.
-   Re-check real Alpaca positions and open orders before every scan and every order.
-3. **No "can I afford this?" check** → share size comes only from risk ÷ stop distance.
-   A tight stop can mean a huge order. Cap shares by buying power and a max $ per trade.
-4. ✅ DONE 2026-10-12. **Keys in code** → keys now live only in `.env` (git-ignored);
-   `fpb_paper_trader.py` reads them at startup. `.env.example` shows the format.
-   Verified the real keys were never in git history.
-5. **No stop-loss or target orders are sent to Alpaca** → stops and targets are only printed.
-   Use bracket orders (entry + stop + target in one order) so every trade is protected
-   even if the bot crashes.
-6. **Stale signals** → the scan can find a pullback that happened hours ago and buy at
-   today's market price with the old share size. Only act on signals from the last bar or two.
-7. Remove hardcoded paths (`BOT_DIR = "C:/Users/Hassan/ORB-Bot"`).
+In `fpb_paper_trader.py`:
+1. **Short exits make the short bigger** → every exit (`_exit_r1/_r2/stop/trail/EOD`) calls
+   `self.alpaca.sell()` even for SHORT positions; covering a short must BUY. Confirmed in logs
+   (GOOGL 21 → 42, SOFI 214 → 428). Fix the side (or use Alpaca's close-position call) AND add
+   `ALLOW_SHORTS = False`; trade longs only for now.
+2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), and the bot only trusts
+   its own state file. Read real Alpaca positions and open orders on startup and before every
+   scan/order; stop if that call fails; flag positions the bot didn't open.
+3. **No "can I afford this?" check** → shares = risk ÷ stop distance only. QS asked for
+   1,618 shares (~$11.5k) on a ~$7.6k account. Cap by buying power ÷ open slots.
+4. ✅ DONE 2026-10-12. Keys live only in `.env` (git-ignored). Never in git history.
+5. **No stop/target orders at Alpaca** → stops only exist while the script runs. Use bracket orders.
+6. **Stale signals** → a pullback from hours ago can trigger a buy at today's price.
+   Only act on signals from the last bar or two.
+7. ✅ DONE 2026-10-12. Hardcoded paths removed (bot, strategy and scanners).
+8. **Rejected signals retried every 5 min** (QS, MSTR, MARA) → one attempt per ticker per day.
+9. **Order that would flip a position is rejected** by Alpaca (SOFI buy 376 while short 52).
+10. **Mistyped command starts trading** → unknown command falls through to `cmd_run()`.
+11. **End-of-day close needs the script running** → needs a scheduler (Task Scheduler) later.
 After fixes: run longs only and watch the first hour. After each fill, check that Alpaca and
 the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
 
-## Known issues
-- Hardcoded Windows paths (e.g. `BOT_DIR = "C:/Users/Hassan/ORB-Bot"` in `fpb_paper_trader.py`).
-- API keys are meant to be pasted into code; they should come from environment variables or
-  an untracked `.env` file instead. Never commit real keys.
-- `requirements.txt` is saved as UTF-16 (tools may fail to read it); it should be UTF-8.
-- Clutter in git: `__pycache__/`, `*.backup`, `fpb_strategy backup backtest.py`, many old logs.
+## Scanner / stock-selection issues (fix after the plumbing)
+- `premarket_scanner.py` only saves when it finds ≥1 stock, so a 0-result day leaves the
+  OLD file and the merge uses stale gaps (Oct 9 watchlist merged a May 6 pre-market scan).
+  The merge should ignore scan files not from today.
+- `universe.txt` starts with mega-caps (AAPL, MSFT, GOOGL, AMZN, META...). Biggest lesson so
+  far: Kunal trades news/earnings gappers and small/mid-caps, not mega-caps.
+- `load_watchlist_symbols()` silently falls back to NVDA/AMD/TSLA/COIN/MSTR if no watchlist.
+
+## Open questions for the user
+1. Risk: $250 fixed (strategy docs) or 1% of account (paper trader, current code)?
+2. Exit: FPB rules say out by 11:00 (hard exit 11:30); paper trader holds until 3:55.
+3. Gap minimum 3% or 4%? Stop under candle low or under 20 EMA? Candle body min 15% or 30%?
+4. Shorts: disable until longs are proven? (Recommended.)
+5. Make the GitHub repo private? (Then PROJECT_HISTORY.md can be uploaded too.)
+6. What tells *him* a day is a "long day" vs a "short day"?
 
 ## Decisions Log
 - 2026-10-09: Resumed project. Plan to switch historical data to Alpaca (years of minute bars)
   so backtests have hundreds of trades. Agreed on the strategy-selector goal above.
 - 2026-10-09: Created this CLAUDE.md as cross-chat memory.
 - 2026-10-12: Work happens in a Claude Code session on the user's PC, opened on the
-  local ORB-Bot folder (the PC copy is the newest). One AI tool only, no Codex.
+  local ORB-Bot folder. One AI tool only, no Codex.
   Fix the paper-trading bugs before any new strategy work.
+- 2026-10-12: User approved deleting everything not used by the pipeline. Removed: old copies
+  and backups, ORB code, Quant_engine.py, fix_watchlist_path.py, scanners/output/, old ORB and
+  FPB v2/v3 logs. Snapshot commit `ac3d2db` holds the pre-cleanup state.
 
 ## Next Steps
-1. Fix the paper-trading bugs above (in that order), then push to GitHub.
-   Also: fix `requirements.txt`, add `.gitignore`, delete junk files.
-2. Add Alpaca historical data loader; re-run FPB backtest on a large sample.
-3. Build a "market weather" (regime) detector that labels each day.
-4. Test ORB and FPB separately per regime.
-5. Build the rule-based strategy selector from those results.
-6. Open question for the user: what tells *them* a day is a "long day" vs a "short day"?
+1. Fix paper-trading bugs 1, 2, 3 (in that order), then 5, 6, 8–10. One at a time, tested.
+2. Fix the stale pre-market merge; review `universe.txt` with the user.
+3. Add Alpaca historical data loader; re-run FPB backtest on a large sample (200+ trades),
+   with slippage, on the right stocks; compare with/without the low-volume pullback rule.
+4. Build a "market weather" (regime) detector that labels each day.
+5. Test ORB and FPB separately per regime.
+6. Build the rule-based strategy selector from those results.
+7. Automate (scheduler) and paper trade for months before any real money.

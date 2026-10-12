@@ -18,8 +18,11 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# The scanner's final watchlist in the project's output/ folder (works from any folder)
+WATCHLIST_FILE = str(Path(__file__).resolve().parent.parent / "output" / "watchlist.json")
 
-def load_watchlist(filepath: str = "output/watchlist.json") -> List[str]:
+
+def load_watchlist(filepath: str = WATCHLIST_FILE) -> List[str]:
     """
     Load today's watchlist symbols.
     
@@ -58,7 +61,7 @@ def load_watchlist(filepath: str = "output/watchlist.json") -> List[str]:
         return get_fallback_symbols()
 
 
-def load_watchlist_with_context(filepath: str = "output/watchlist.json") -> List[Dict]:
+def load_watchlist_with_context(filepath: str = WATCHLIST_FILE) -> List[Dict]:
     """
     Load watchlist with full context for smarter trading.
     
@@ -175,7 +178,7 @@ def get_fallback_symbols() -> List[str]:
     return fallback
 
 
-def print_watchlist_summary(filepath: str = "output/watchlist.json"):
+def print_watchlist_summary(filepath: str = WATCHLIST_FILE):
     """Pretty print watchlist summary"""
     stocks = load_watchlist_with_context(filepath)
     

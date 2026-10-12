@@ -19,6 +19,9 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# The project's output/ folder (one level up from scanners/), so merges work from any folder
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output')
+
 
 def load_json(filepath: str) -> Optional[Dict]:
     """Load JSON file if exists"""
@@ -34,9 +37,9 @@ def load_json(filepath: str) -> Optional[Dict]:
 
 
 def merge_watchlists(
-    premarket_file: str = "output/watchlist_premarket.json",
-    eod_file: str = "output/watchlist_eod.json",
-    output_file: str = "output/watchlist.json",
+    premarket_file: str = os.path.join(OUTPUT_DIR, "watchlist_premarket.json"),
+    eod_file: str = os.path.join(OUTPUT_DIR, "watchlist_eod.json"),
+    output_file: str = os.path.join(OUTPUT_DIR, "watchlist.json"),
     max_stocks: int = 20
 ) -> List[Dict]:
     """
@@ -149,11 +152,11 @@ def merge_watchlists(
     print(f"   📊 Pattern only: {eod_count}")
     
     # Save final watchlist
-    os.makedirs('output', exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
     output = {
         'last_updated': datetime.now().isoformat(),
-        'premarket_file': premarket_file if premarket_data else None,
-        'eod_file': eod_file if eod_data else None,
+        'premarket_file': os.path.basename(premarket_file) if premarket_data else None,
+        'eod_file': os.path.basename(eod_file) if eod_data else None,
         'count': len(stocks_list),
         'breakdown': {
             'gap_and_pattern': both_count,
@@ -170,17 +173,18 @@ def merge_watchlists(
     
     # Also save simple text list
     symbols = [s['symbol'] for s in stocks_list]
-    with open('output/watchlist.txt', 'w') as f:
+    txt_file = os.path.join(os.path.dirname(os.path.abspath(output_file)), 'watchlist.txt')
+    with open(txt_file, 'w') as f:
         f.write('\n'.join(symbols))
-    
-    print(f"💾 Symbols saved to output/watchlist.txt")
+
+    print(f"💾 Symbols saved to {txt_file}")
     
     print(f"\n{'='*60}\n")
     
     return stocks_list
 
 
-def get_symbols_only(watchlist_file: str = "output/watchlist.json") -> List[str]:
+def get_symbols_only(watchlist_file: str = os.path.join(OUTPUT_DIR, "watchlist.json")) -> List[str]:
     """
     Get just the symbols from watchlist (for FPB/ORB bot).
     
@@ -197,7 +201,7 @@ def get_symbols_only(watchlist_file: str = "output/watchlist.json") -> List[str]
     return [stock['symbol'] for stock in data.get('stocks', [])]
 
 
-def print_watchlist(watchlist_file: str = "output/watchlist.json"):
+def print_watchlist(watchlist_file: str = os.path.join(OUTPUT_DIR, "watchlist.json")):
     """Pretty print the current watchlist"""
     data = load_json(watchlist_file)
     if not data:

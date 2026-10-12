@@ -59,7 +59,8 @@ PULLBACK_EMA_BUFFER = 2.0   # % buffer for EMA touch
 # WATCHLIST SETTINGS
 # ==============================================================================
 MAX_WATCHLIST_SIZE = 20     # Max stocks on final watchlist
-OUTPUT_DIR = "output"       # Where to save watchlist files
+# Where to save watchlist files: the project's output/ folder (one level up from scanners/)
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
 
 
 # ==============================================================================
