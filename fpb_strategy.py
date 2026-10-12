@@ -84,32 +84,6 @@ def load_watchlist_symbols(watchlist_path: str = None) -> List[str]:
     return ["NVDA", "AMD", "TSLA", "COIN", "MSTR"]
 
 
-def load_watchlist_full(watchlist_path: str = None) -> List[Dict]:
-    """
-    Load full watchlist with all context (gap %, patterns, scores).
-    
-    Returns:
-        List of stock dicts with full scanner data
-    """
-    possible_paths = [
-        watchlist_path,
-        "C:/Users/Hassan/ORB-Bot/scanners/output/watchlist.json",
-        "./scanners/output/watchlist.json",
-        "./output/watchlist.json",
-    ]
-    
-    for path in possible_paths:
-        if path and os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    data = json.load(f)
-                return data.get('stocks', [])
-            except:
-                continue
-    
-    return []
-
-
 # ==============================================================================
 # DATA DOWNLOADER
 # ==============================================================================
