@@ -82,6 +82,7 @@ MARKET_CLOSE_TIME = "16:00"     # Stop everything
 TARGET_R1 = 1.5                 # First target (sell half)
 TARGET_R2 = 3.0                 # Second target (close rest)
 USE_EMA_TRAIL = True            # Trail with 9 EMA after R1
+ALLOW_SHORTS = False            # False = longs only (until longs are proven). True = also short
 
 # === SIMULATION SETTINGS ===
 SIM_SLIPPAGE_PCT = 0.15         # Simulate 0.15% slippage in sim mode
@@ -126,7 +127,7 @@ except ImportError:
 
 try:
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.requests import MarketOrderRequest, ClosePositionRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
@@ -442,15 +443,16 @@ class AlpacaClient:
             print(f"   ❌ BUY failed: {e}")
             return None, 0
     
-    def sell(self, symbol: str, shares: int, direction: str = "LONG") -> Tuple[Optional[float], int]:
+    def sell_short(self, symbol: str, shares: int) -> Tuple[Optional[float], int]:
+        """Open a SHORT position. Only for entries; exits must use close()."""
         if self.sim_mode:
             price = self.get_current_price(symbol)
             if price:
-                fill_price = self._add_sim_slippage(price, direction, is_entry=False)
-                print(f"   [SIM] SELL {shares} {symbol} @ ${fill_price:.2f}")
+                fill_price = self._add_sim_slippage(price, "SHORT", is_entry=True)
+                print(f"   [SIM] SELL SHORT {shares} {symbol} @ ${fill_price:.2f}")
                 return fill_price, shares
             return None, 0
-        
+
         try:
             order = MarketOrderRequest(
                 symbol=symbol,
@@ -459,12 +461,37 @@ class AlpacaClient:
                 time_in_force=TimeInForce.DAY
             )
             self.trading_client.submit_order(order)
-            print(f"   ✅ SELL {shares} {symbol}")
+            print(f"   ✅ SELL SHORT {shares} {symbol}")
             time.sleep(1)
             return self.get_current_price(symbol), shares
-            
+
         except Exception as e:
-            print(f"   ❌ SELL failed: {e}")
+            print(f"   ❌ SELL SHORT failed: {e}")
+            return None, 0
+
+    def close(self, symbol: str, shares: int, direction: str) -> Tuple[Optional[float], int]:
+        """
+        Exit part or all of a position (targets, stops, trail, end of day).
+        Uses Alpaca's close-position order: Alpaca picks the side itself (SELL a long,
+        BUY back a short), and it can only shrink a position, never grow or flip it.
+        """
+        action = "SELL" if direction == "LONG" else "BUY TO COVER"
+        if self.sim_mode:
+            price = self.get_current_price(symbol)
+            if price:
+                fill_price = self._add_sim_slippage(price, direction, is_entry=False)
+                print(f"   [SIM] {action} {shares} {symbol} @ ${fill_price:.2f}")
+                return fill_price, shares
+            return None, 0
+
+        try:
+            self.trading_client.close_position(symbol, ClosePositionRequest(qty=str(shares)))
+            print(f"   ✅ {action} {shares} {symbol}")
+            time.sleep(1)
+            return self.get_current_price(symbol), shares
+
+        except Exception as e:
+            print(f"   ❌ {action} failed: {e}")
             return None, 0
     
     def close_all(self):
@@ -492,7 +519,8 @@ class EntryScanner:
         self.strategy = None
         self.symbols = []
         self.last_scan_time = None
-        
+        self.skipped_shorts = set()
+
     def load_watchlist(self):
         """Load watchlist once"""
         self.symbols = load_watchlist_symbols()
@@ -572,7 +600,14 @@ class EntryScanner:
                 had_spike, direction = self.strategy.check_initial_spike(today_df, prev_close)
                 if not had_spike:
                     continue
-                
+
+                # Longs only unless shorts are switched on (say so once per symbol)
+                if direction == "SHORT" and not ALLOW_SHORTS:
+                    if symbol not in self.skipped_shorts:
+                        print(f"   ⏭️  {symbol}: SHORT setup skipped (ALLOW_SHORTS = False)")
+                        self.skipped_shorts.add(symbol)
+                    continue
+
                 # Get spike levels
                 early_df = today_df.iloc[:3]
                 spike_high = early_df['high'].max()
@@ -598,7 +633,7 @@ class EntryScanner:
                 if direction == "LONG":
                     fill_price, actual_shares = self.alpaca.buy(symbol, signal['shares'], direction)
                 else:
-                    fill_price, actual_shares = self.alpaca.sell(symbol, signal['shares'], direction)
+                    fill_price, actual_shares = self.alpaca.sell_short(symbol, signal['shares'])
                 
                 if fill_price and actual_shares > 0:
                     # Add to state
@@ -745,7 +780,7 @@ class PositionMonitor:
         
         print(f"\n🎯 {symbol} HIT R1 TARGET!")
         
-        fill_price, actual_shares = self.alpaca.sell(symbol, shares_to_sell, pos['direction'])
+        fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if fill_price is None:
             fill_price = current_price
             actual_shares = shares_to_sell
@@ -791,7 +826,7 @@ class PositionMonitor:
         
         print(f"\n🏆 {symbol} HIT R2 TARGET!")
         
-        fill_price, actual_shares = self.alpaca.sell(symbol, shares_to_sell, pos['direction'])
+        fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if fill_price is None:
             fill_price = current_price
             actual_shares = shares_to_sell
@@ -831,7 +866,7 @@ class PositionMonitor:
         
         print(f"\n🛑 {symbol} HIT {stop_type}!")
         
-        fill_price, actual_shares = self.alpaca.sell(symbol, shares_to_sell, pos['direction'])
+        fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if fill_price is None:
             fill_price = current_price
             actual_shares = shares_to_sell
@@ -868,7 +903,7 @@ class PositionMonitor:
         
         print(f"\n📉 {symbol} HIT TRAILING STOP!")
         
-        fill_price, actual_shares = self.alpaca.sell(symbol, shares_to_sell, pos['direction'])
+        fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if fill_price is None:
             fill_price = current_price
             actual_shares = shares_to_sell
@@ -910,7 +945,7 @@ class PositionMonitor:
         
         print(f"\n⏰ EOD EXIT: {symbol}")
         
-        fill_price, actual_shares = self.alpaca.sell(symbol, shares_to_sell, pos['direction'])
+        fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if fill_price is None:
             fill_price = current_price or pos['entry_price']
             actual_shares = shares_to_sell
@@ -1384,6 +1419,7 @@ def cmd_help():
 ║    SCAN_INTERVAL = 300        # Scan every 5 minutes                 ║
 ║    MONITOR_INTERVAL = 10      # Check positions every 10 sec         ║
 ║    SCAN_END_TIME = "11:00"    # Stop looking for new entries         ║
+║    ALLOW_SHORTS = False       # Longs only (True = also short)       ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """)

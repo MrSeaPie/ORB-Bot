@@ -64,13 +64,16 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
 
 ## Paper-trading bugs: fix these first (plumbing only, don't change the strategy)
 In `fpb_paper_trader.py`:
-1. **Short exits make the short bigger** → every exit (`_exit_r1/_r2/stop/trail/EOD`) calls
-   `self.alpaca.sell()` even for SHORT positions; covering a short must BUY. Confirmed in logs
-   (GOOGL 21 → 42, SOFI 214 → 428). Fix the side (or use Alpaca's close-position call) AND add
-   `ALLOW_SHORTS = False`; trade longs only for now.
+1. ✅ DONE 2026-10-12. **Short exits made the short bigger** (every exit called `sell()`;
+   GOOGL 21 → 42, SOFI 214 → 428). Now all exits go through `AlpacaClient.close()`, which uses
+   Alpaca's close-position order: right side automatically, can only shrink a position.
+   Entries: `buy()` for longs, `sell_short()` for shorts. `ALLOW_SHORTS = False` (longs only).
+   Tested on a fake broker: old code replays GOOGL to -42, new code to 0.
 2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), and the bot only trusts
    its own state file. Read real Alpaca positions and open orders on startup and before every
    scan/order; stop if that call fails; flag positions the bot didn't open.
+   Also: when an exit order FAILS, every `_exit_*` falls back to `fill_price = current_price`
+   and removes the position from state, logging a fake fill. It must keep the position instead.
 3. **No "can I afford this?" check** → shares = risk ÷ stop distance only. QS asked for
    1,618 shares (~$11.5k) on a ~$7.6k account. Cap by buying power ÷ open slots.
 4. ✅ DONE 2026-10-12. Keys live only in `.env` (git-ignored). Never in git history.
@@ -82,6 +85,8 @@ In `fpb_paper_trader.py`:
 9. **Order that would flip a position is rejected** by Alpaca (SOFI buy 376 while short 52).
 10. **Mistyped command starts trading** → unknown command falls through to `cmd_run()`.
 11. **End-of-day close needs the script running** → needs a scheduler (Task Scheduler) later.
+    Note: the bot prints emoji; with output redirected to a file, Windows' default encoding
+    (cp1252) crashes `print()`. Run with `python -X utf8` (or set PYTHONUTF8=1) when scheduling.
 After fixes: run longs only and watch the first hour. After each fill, check that Alpaca and
 the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
 
@@ -97,7 +102,7 @@ the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
 1. Risk: $250 fixed (strategy docs) or 1% of account (paper trader, current code)?
 2. Exit: FPB rules say out by 11:00 (hard exit 11:30); paper trader holds until 3:55.
 3. Gap minimum 3% or 4%? Stop under candle low or under 20 EMA? Candle body min 15% or 30%?
-4. Shorts: disable until longs are proven? (Recommended.)
+4. Shorts are OFF (`ALLOW_SHORTS = False`) since 2026-10-12. When should they come back on?
 5. Make the GitHub repo private? (Then PROJECT_HISTORY.md can be uploaded too.)
 6. What tells *him* a day is a "long day" vs a "short day"?
 
@@ -113,7 +118,7 @@ the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
   FPB v2/v3 logs. Snapshot commit `ac3d2db` holds the pre-cleanup state.
 
 ## Next Steps
-1. Fix paper-trading bugs 1, 2, 3 (in that order), then 5, 6, 8–10. One at a time, tested.
+1. Fix paper-trading bugs 2, 3 (in that order), then 5, 6, 8–10. One at a time, tested.
 2. Fix the stale pre-market merge; review `universe.txt` with the user.
 3. Add Alpaca historical data loader; re-run FPB backtest on a large sample (200+ trades),
    with slippage, on the right stocks; compare with/without the low-volume pullback rule.
