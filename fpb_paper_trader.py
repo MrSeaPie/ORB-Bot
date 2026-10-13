@@ -82,6 +82,8 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "YOUR_SECRET_KEY_HERE")
 
 # === RISK SETTINGS ===
 RISK_PERCENT = 1.0              # Risk 1% of account per trade
+MAX_POSITION_PCT = 50.0         # No single trade worth more than 50% of the account (tight stops
+                                #   would otherwise mean huge orders; risk is then below 1%)
 MAX_POSITIONS = 3               # Max simultaneous positions
 MAX_DAILY_LOSS = 500.0          # Stop trading if down $500 today
 DEFAULT_CAPITAL = 10000.0       # Fallback if can't get account equity
@@ -376,6 +378,18 @@ class AlpacaClient:
     
     def get_risk_dollars(self) -> float:
         return self.equity * RISK_PERCENT / 100
+
+    def get_buying_power(self) -> Optional[float]:
+        """Money Alpaca lets us use for a new trade right now (also refreshes equity). None if unknown."""
+        if self.sim_mode:
+            return self.equity
+        try:
+            account = self.trading_client.get_account()
+            self.equity = float(account.equity)
+            return float(account.buying_power)
+        except Exception as e:
+            print(f"   ⚠️  Could not get buying power from Alpaca: {e}")
+            return None
     
     def _add_sim_slippage(self, price: float, direction: str, is_entry: bool) -> float:
         slip_pct = random.uniform(0, SIM_SLIPPAGE_PCT) / 100
@@ -710,7 +724,23 @@ class EntryScanner:
         )
         self.strategy = FirstPullbackBuy(config=config)
         print(f"💰 Risk per trade: ${risk_dollars:.2f} ({RISK_PERCENT}%)")
-    
+
+    def size_position(self, wanted: int, price: float) -> Tuple[int, str]:
+        """
+        Cap the strategy's share count so one trade fits the account.
+        Returns (shares, note). 0 shares means skip the trade.
+        """
+        buying_power = self.alpaca.get_buying_power()
+        if buying_power is None:
+            return 0, "can't confirm buying power with Alpaca"
+        slots_left = max(1, MAX_POSITIONS - self.sync.slots_used())
+        max_value = min(self.alpaca.equity * MAX_POSITION_PCT / 100,   # size cap per trade
+                        buying_power / slots_left)                      # leave room for the other slots
+        cap = int(max_value / price) if price > 0 else 0
+        if cap < wanted:
+            return cap, f"capped from {wanted} to {cap} shares (max ${max_value:,.0f} per trade)"
+        return wanted, ""
+
     def scan_once(self) -> List[str]:
         """
         Scan all symbols for FPB entries.
@@ -817,14 +847,23 @@ class EntryScanner:
                 if self.sync.is_busy(symbol):
                     print(f"   ⏭️  {symbol}: skipped, Alpaca already has a position or order for it")
                     continue
+
+                # Make sure the trade fits the account (size cap + real buying power)
+                price_now = self.alpaca.get_current_price(symbol) or signal['entry_price']
+                shares, note = self.size_position(signal['shares'], price_now)
+                if note:
+                    print(f"   📏 {note}")
+                if shares < 1:
+                    print(f"   ⏭️  {symbol}: skipped, the trade doesn't fit the account")
+                    continue
                 print(f"   → Entering trade...")
 
                 # Enter trade
                 if direction == "LONG":
-                    fill_price, actual_shares = self.alpaca.buy(symbol, signal['shares'], direction)
+                    fill_price, actual_shares = self.alpaca.buy(symbol, shares, direction)
                 else:
-                    fill_price, actual_shares = self.alpaca.sell_short(symbol, signal['shares'])
-                
+                    fill_price, actual_shares = self.alpaca.sell_short(symbol, shares)
+
                 if fill_price and actual_shares > 0:
                     # Add to state
                     self.state.add_position(
@@ -836,7 +875,7 @@ class EntryScanner:
                         target_r2=signal['target_r2'],
                         shares=actual_shares,
                         direction=direction,
-                        risk_dollars=signal['risk_dollars']
+                        risk_dollars=signal['risk_per_share'] * actual_shares
                     )
                     
                     trades_entered.append(symbol)
@@ -848,6 +887,8 @@ class EntryScanner:
                         'symbol': symbol,
                         'direction': direction,
                         'shares': actual_shares,
+                        'shares_wanted': signal['shares'],
+                        'risk_dollars': signal['risk_per_share'] * actual_shares,
                         'signal_price': signal['entry_price'],
                         'fill_price': fill_price,
                         'slippage': entry_slippage,
