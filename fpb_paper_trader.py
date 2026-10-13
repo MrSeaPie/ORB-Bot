@@ -42,8 +42,25 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 import warnings
 warnings.filterwarnings('ignore')
+
+# Emoji-safe printing, even when output goes to a file (e.g. when Task Scheduler runs the bot)
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+# All trading times are New York (Eastern) time, whatever the computer's clock is set to
+ET = ZoneInfo("America/New_York")
+
+
+def now_et() -> datetime:
+    """Current New York time, without timezone info (to compare with "09:35"-style settings)."""
+    return datetime.now(ET).replace(tzinfo=None)
+
 
 # === YOUR ALPACA KEYS (Paper Trading) ===
 # Keys live in the .env file next to this script (never uploaded to GitHub).
@@ -157,7 +174,7 @@ class PositionStateManager:
             try:
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
-                today = datetime.now().strftime("%Y-%m-%d")
+                today = now_et().strftime("%Y-%m-%d")
                 if data.get('date') == today:
                     return data.get('positions', {})
             except:
@@ -166,8 +183,8 @@ class PositionStateManager:
     
     def _save(self):
         data = {
-            'date': datetime.now().strftime("%Y-%m-%d"),
-            'last_updated': datetime.now().isoformat(),
+            'date': now_et().strftime("%Y-%m-%d"),
+            'last_updated': now_et().isoformat(),
             'positions': self.positions
         }
         with open(self.state_file, 'w') as f:
@@ -192,7 +209,7 @@ class PositionStateManager:
                 'direction': direction,
                 'risk_dollars': risk_dollars,
                 'hit_r1': False,
-                'entry_time': datetime.now().isoformat(),
+                'entry_time': now_et().isoformat(),
                 'realized_pnl': 0.0,
                 'entry_slippage': entry_slippage,
                 'entry_slippage_pct': entry_slippage_pct,
@@ -238,7 +255,7 @@ class PaperTradeLog:
     def __init__(self):
         self.log_dir = Path(LOG_DIR)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.today = datetime.now().strftime("%Y-%m-%d")
+        self.today = now_et().strftime("%Y-%m-%d")
         self.log_file = self.log_dir / f"paper_{self.today}.json"
         self.trades = self._load()
         self.lock = threading.Lock()
@@ -258,7 +275,7 @@ class PaperTradeLog:
     
     def log(self, entry: Dict):
         with self.lock:
-            entry['timestamp'] = datetime.now().isoformat()
+            entry['timestamp'] = now_et().isoformat()
             self.trades.append(entry)
             self._save()
     
@@ -621,7 +638,7 @@ class BrokerSync:
             held = positions.get(symbol)
             bot_side = 'long' if pos['direction'] == "LONG" else 'short'
             if held is None:
-                just_entered = datetime.now() - datetime.fromisoformat(pos['entry_time']) < timedelta(seconds=60)
+                just_entered = now_et() - datetime.fromisoformat(pos['entry_time']) < timedelta(seconds=60)
                 if symbol in open_orders or just_entered:
                     continue    # an order is still working or Alpaca hasn't listed it yet; look again next time
                 self._drop(symbol, pos, "Alpaca no longer holds it (closed outside the bot)")
@@ -699,7 +716,7 @@ class EntryScanner:
         Scan all symbols for FPB entries.
         Returns list of symbols where trades were entered.
         """
-        now = datetime.now()
+        now = now_et()
         current_time = now.strftime("%H:%M")
         
         # Check if we're in scanning window
@@ -743,7 +760,7 @@ class EntryScanner:
                 df = self.strategy.prepare_data(df)
                 
                 # Get today's data
-                today = datetime.now().date()
+                today = now_et().date()
                 today_df = df[df.index.date == today]
                 
                 if len(today_df) < 3:
@@ -1209,7 +1226,7 @@ class TradingEngine:
     
     def should_scan(self) -> bool:
         """Check if we should scan for new entries"""
-        now = datetime.now()
+        now = now_et()
         current_time = now.strftime("%H:%M")
         
         # Only scan during window
@@ -1232,7 +1249,7 @@ class TradingEngine:
         print("\n" + "="*70)
         print("🚀 FPB TRADING ENGINE v3 STARTED")
         print("="*70)
-        print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"📅 {now_et().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"⏰ Scanning for entries: {SCAN_START_TIME} - {SCAN_END_TIME} (every {SCAN_INTERVAL//60} min)")
         print(f"👁️  Monitoring positions: every {MONITOR_INTERVAL} seconds")
         print(f"🛑 EOD exit: {EOD_EXIT_TIME}")
@@ -1255,7 +1272,7 @@ class TradingEngine:
         
         try:
             while self.running:
-                now = datetime.now()
+                now = now_et()
                 current_time = now.strftime("%H:%M")
                 iteration += 1
                 
@@ -1402,7 +1419,7 @@ def cmd_monitor():
 
     try:
         while True:
-            now = datetime.now()
+            now = now_et()
             current_time = now.strftime("%H:%M")
             loops += 1
 
@@ -1437,7 +1454,7 @@ def cmd_status():
     print("📊 STATUS")
     print("="*70)
     
-    now = datetime.now()
+    now = now_et()
     current_time = now.strftime("%H:%M")
     
     # Time status
@@ -1642,6 +1659,7 @@ def cmd_help():
 ║                                                                      ║
 ║  COMMANDS:                                                           ║
 ║    python fpb_paper_trader.py           THE MAIN ONE (does everything)║
+║    python fpb_paper_trader.py run       Same as above                ║
 ║    python fpb_paper_trader.py scan      One-time scan                ║
 ║    python fpb_paper_trader.py monitor   Monitor existing positions   ║
 ║    python fpb_paper_trader.py status    Show current state           ║
@@ -1687,7 +1705,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         cmd = sys.argv[1].lower()
         
-        if cmd in ['scan', 's']:
+        if cmd in ['run', 'r']:
+            cmd_run()
+        elif cmd in ['scan', 's']:
             cmd_scan()
         elif cmd in ['monitor', 'm']:
             cmd_monitor()
@@ -1702,6 +1722,9 @@ if __name__ == "__main__":
         elif cmd in ['help', 'h', '-h', '--help']:
             cmd_help()
         else:
-            cmd_run()
+            # Never start trading on a typo
+            print(f"\n❌ Unknown command: '{sys.argv[1]}'. Nothing was started.")
+            cmd_help()
+            sys.exit(1)
     else:
         cmd_run()
