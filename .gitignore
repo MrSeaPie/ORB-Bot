@@ -6,6 +6,9 @@ secrets*
 # Personal notes: stay on the PC while the GitHub repo is public
 PROJECT_HISTORY.md
 
+# Course transcripts and other private material (paid bootcamp content: never upload)
+private/
+
 # Daily console logs from run_bot.bat (the trade logs in logs/paper_trades are kept)
 logs/runs/
 

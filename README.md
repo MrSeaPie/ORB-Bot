@@ -28,6 +28,8 @@ logs/paper_trades/         one log file per trading day
 | `run_bot.bat` | One-click daily run: scanner, then paper trader, logged to `logs\runs\`. |
 | `setup_schedule.ps1` | Run once to have Windows start `run_bot.bat` every weekday morning. |
 | `logs/` | Paper-trade logs and backtest results. |
+| `tests/` | `test_paper_trader.py` (69 checks on a fake broker, run after every change) and `check_no_secrets.py` (run before every commit). |
+| `private/` | Course transcripts and other private material. Never uploaded. |
 | `FPB_MASTER_REFERENCE.md` | The full how-to: commands, settings, strategy rules. |
 | `CLAUDE.md` | Project memory that Claude reads at the start of every chat: status, bugs, plan. |
 

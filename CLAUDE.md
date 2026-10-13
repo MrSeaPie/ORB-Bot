@@ -76,9 +76,21 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
   and (read-only) Alpaca positions/orders. Check every fill had a matching stop order, exits
   cancelled stops, and the bot and Alpaca ended flat.
 - The live `fpb_strategy.py` has NO low-volume-pullback check (Kunal's rule / "V4").
-- Test suite (fake broker + fake Yahoo data, 69 checks) lives outside the repo; rebuild it if
-  needed: the key tricks are a fake TradingClient that enforces Alpaca's held-shares rule
-  (can't close shares a stop order holds) and patched `download_stock_data`/`now_et`.
+- Tests: `tests/test_paper_trader.py` (fake broker + fake Yahoo data, 69 checks, no internet).
+  Run after every change to the trader or scanners. Before every commit run
+  `tests/check_no_secrets.py` (the repo is public).
+- `private/` (git-ignored) holds course transcripts, e.g. `private/transcripts/orb/`. Never
+  upload or quote them in tracked files; write rules in our own words.
+
+## How to work in parallel (agreed 2026-10-13)
+- The live bot runs from THIS folder every weekday 9:20 AM–4 PM and loads the code at start.
+  Never leave half-finished edits to `fpb_paper_trader.py`, `fpb_strategy.py` or `scanners/`
+  here: build new things (ORB, backtester) in a separate git worktree/branch and merge to main
+  only after the tests pass, outside market hours.
+- One chat per workstream: (a) short chats to review the live FPB days, (b) a separate chat for
+  ORB (transcripts → written rules Hassan confirms → data loader → backtest → plug-in).
+- Two strategies trading live at once → one Alpaca paper account per strategy (own keys, own
+  scheduled task) so results and BrokerSync never mix. Requires the plug-in split first.
 
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
 - 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and
