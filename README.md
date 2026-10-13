@@ -3,8 +3,8 @@
 A day-trading bot for US stocks. It paper-trades (fake money) through Alpaca.
 The current strategy is **FPB (First Pullback Buy)**.
 
-> **Status:** not validated yet, and the paper trader has known bugs (see `CLAUDE.md`).
-> Don't run it until those are fixed, and never with real money.
+> **Status:** the known paper-trading bugs are fixed (Oct 2026), so it's ready for **paper**
+> testing. The strategy itself is not validated yet. Never use real money with it.
 
 ## How the pieces fit
 
@@ -24,7 +24,9 @@ logs/paper_trades/         one log file per trading day
 | `fpb_paper_trader.py` | Runs FPB on the Alpaca paper account. |
 | `run_fpb_backtest.py` | Tests FPB on past price data. Results go to `logs/fpb_trades/`. |
 | `scanners/` | Pre-market gap scanner, end-of-day pattern scanner and the merge step. Stock list: `scanners/universe.txt`. Settings: `scanners/config.py`. |
-| `output/` | The latest watchlists the scanners wrote. |
+| `output/` | The latest watchlists the scanners wrote (rebuilt daily, not uploaded). |
+| `run_bot.bat` | One-click daily run: scanner, then paper trader, logged to `logs\runs\`. |
+| `setup_schedule.ps1` | Run once to have Windows start `run_bot.bat` every weekday morning. |
 | `logs/` | Paper-trade logs and backtest results. |
 | `FPB_MASTER_REFERENCE.md` | The full how-to: commands, settings, strategy rules. |
 | `CLAUDE.md` | Project memory that Claude reads at the start of every chat: status, bugs, plan. |
@@ -38,12 +40,17 @@ logs/paper_trades/         one log file per trading day
    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
    ```
 
-## Daily commands
+## Running it
 
-Run these in PowerShell from the `ORB-Bot` folder:
+**Automatic (recommended):** run `setup_schedule.ps1` once. Windows then starts `run_bot.bat`
+every weekday at 9:20 AM: it builds the watchlist, trades until 3:55 PM, and writes everything to
+`logs\runs\<date>.log`. On holidays it sees the market is closed and stops.
+
+**By hand:** double-click `run_bot.bat`, or in PowerShell from the `ORB-Bot` folder:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1          # use the project's Python
 python scanners\run_daily.py --now    # 9:25 AM: build today's watchlist
 python fpb_paper_trader.py            # 9:35 AM: scan, trade, monitor, exit at 3:55 PM
+python fpb_paper_trader.py status     # anytime: what the bot and Alpaca hold
 ```

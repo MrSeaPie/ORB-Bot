@@ -9,6 +9,9 @@ PROJECT_HISTORY.md
 # Daily console logs from run_bot.bat (the trade logs in logs/paper_trades are kept)
 logs/runs/
 
+# Scanner results: rebuilt every morning, so not worth uploading
+output/
+
 # Python junk
 __pycache__/
 *.pyc

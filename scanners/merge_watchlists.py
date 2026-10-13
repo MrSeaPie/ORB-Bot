@@ -105,8 +105,13 @@ def merge_watchlists(
         for stock in eod_stocks:
             symbol = stock['symbol']
             
-            if symbol in final_stocks:
-                # Stock has BOTH gap AND pattern - BEST!
+            if symbol in final_stocks and final_stocks[symbol].get('gap_pct', 0) <= 0:
+                # Gapping DOWN against a bullish daily pattern: keep it as a gap-down
+                # (short) candidate, no bonus
+                continue
+            elif symbol in final_stocks:
+                # Stock has BOTH gap AND pattern - BEST! (the daily patterns are bullish,
+                # so only a gap UP lines up with them)
                 existing = final_stocks[symbol]
                 existing['has_pattern'] = True
                 existing['patterns'] = stock.get('patterns', [])

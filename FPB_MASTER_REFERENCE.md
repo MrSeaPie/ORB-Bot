@@ -2,13 +2,21 @@
 > Last Updated: October 12, 2026 (first written Dec 31, 2025; the old "2024" date was a typo)
 > Location: the `ORB-Bot` folder (on Hassan's PC: `C:\Users\Hassan\ORB-Bot\`)
 >
-> ⚠️ The paper trader still has known bugs (order size, no stop orders at Alpaca, stale signals).
-> See `CLAUDE.md`. Don't run it until they're fixed.
+> The known paper-trading bugs were fixed on Oct 12, 2026 (details in `CLAUDE.md`).
+> Paper account only. The strategy is not validated yet.
 
 ---
 
 ## QUICK START (Daily Routine)
 
+**Automatic:** run this once and Windows starts the bot every weekday at 9:20 AM:
+```powershell
+powershell -ExecutionPolicy Bypass -File setup_schedule.ps1
+```
+Each day's full output goes to `logs\runs\YYYY-MM-DD.log`. Check `python fpb_paper_trader.py status`
+anytime. To stop the schedule: `Unregister-ScheduledTask -TaskName "ORB-Bot daily" -Confirm:$false`
+
+**By hand** (double-clicking `run_bot.bat` does steps 2 and 3 for you):
 ```powershell
 # 1. Open PowerShell, go to the bot folder, switch on the project's Python
 cd C:\Users\Hassan\ORB-Bot
@@ -89,6 +97,8 @@ ORB-Bot\
 ├── fpb_strategy.py           # The FPB rules (used by backtest AND paper trader)
 ├── fpb_paper_trader.py       # Paper trading on Alpaca (imports fpb_strategy.py)
 ├── run_fpb_backtest.py       # Backtest runner
+├── run_bot.bat               # Daily run: scanner, then paper trader (logs to logs\runs\)
+├── setup_schedule.ps1        # Run once: Windows starts run_bot.bat every weekday 9:20 AM
 ├── .env                      # Your Alpaca keys (never uploaded)
 ├── .env.example              # Blank template for .env
 ├── requirements.txt          # Python packages to install
@@ -110,7 +120,8 @@ ORB-Bot\
 │
 └── logs\
     ├── fpb_trades\           # Backtest trade logs
-    └── paper_trades\         # Paper trading logs
+    ├── paper_trades\         # Paper trading logs (one JSON file per day)
+    └── runs\                 # Full console output of each run_bot.bat day (not uploaded)
 ```
 
 Old files (ORB code, Quant_engine.py, backups, one-off scripts) were removed on Oct 12, 2026.
@@ -139,12 +150,25 @@ FPBConfig(
 ### Paper Trader Settings (top of fpb_paper_trader.py)
 ```python
 RISK_PERCENT = 1.0           # Risk 1% of account per trade
+MAX_POSITION_PCT = 50.0      # No single trade worth more than 50% of the account
 MAX_POSITIONS = 3            # Max simultaneous positions
 MAX_DAILY_LOSS = 500.0       # Stop trading if down $500 today
+ALLOW_SHORTS = True          # Trade LONG and SHORT setups (False = longs only)
 SCAN_START_TIME = "09:35"    # Start scanning for entries
 SCAN_END_TIME = "11:00"      # Stop scanning for new entries
-EOD_EXIT_TIME = "15:55"      # Close all positions
+MAX_SIGNAL_AGE_MINUTES = 10  # Only act on a signal candle from the last 10 minutes
+EOD_EXIT_TIME = "15:55"      # Close all positions (earlier on early-close days)
 ```
+
+### How the paper trader protects itself
+- **Alpaca is the truth.** Before every scan and order, and every minute, the bot checks what
+  Alpaca really holds and fixes its own records. It never trades a stock Alpaca already holds.
+- **Real stop orders.** Every trade gets a stop-loss order at Alpaca right after it fills, so it
+  stays protected even if the bot or PC stops. The order follows the stop (breakeven, trailing).
+- **Sized to fit.** Orders are capped by `MAX_POSITION_PCT` and by real buying power.
+- **Fresh signals only, one try per stock per day.**
+- **Today's watchlist only.** No watchlist from today means no new trades.
+- **Follows the market calendar:** stops on holidays, closes early on early-close days.
 
 ---
 
@@ -172,8 +196,12 @@ Note: the bootcamp rule "pullback on LOW volume" is **not** checked by `fpb_stra
 
 The full, current bug list lives in `CLAUDE.md`. Common error messages:
 
-### Issue: "No scanner watchlist found"
+### Issue: "No scanner watchlist found" / "The watchlist is from ..., not today"
 **Fix**: Run the scanner first: `python scanners\run_daily.py --now`
+
+### Issue: "Alpaca holds ... that the bot didn't open today"
+A position was left over (e.g. the PC was off at 3:55 PM). Its stop order at Alpaca still protects
+it, but the bot won't manage it. Close it on the Alpaca website or with `python fpb_paper_trader.py close`.
 
 ### Issue: "API keys not set" / "Alpaca connection failed"
 **Fix**: Check that `.env` exists in the `ORB-Bot` folder and has both keys (see Setup Step 1)
@@ -202,13 +230,15 @@ Keep `CLAUDE.md` up to date at the end of each work session.
 
 ## DAILY SCHEDULE
 
+With the schedule set up (`setup_schedule.ps1`), all of this happens by itself:
+
 | Time (ET) | Action | Command |
 |-----------|--------|---------|
-| 9:25 AM | Run scanner | `python scanners\run_daily.py --now` |
-| 9:35 AM | Run paper trader | `python fpb_paper_trader.py` |
+| 9:20 AM | Scanner, then paper trader | `run_bot.bat` (scheduled) |
+| 9:35–11:00 AM | Looks for entries every 5 min | (automatic) |
 | Anytime | Check positions | `python fpb_paper_trader.py status` |
-| 3:55 PM | Auto exit | (the paper trader closes positions itself if still running) |
-| 4:15 PM | EOD scan (optional) | `python scanners\run_daily.py --eod` |
+| 3:55 PM | Closes everything, confirms with Alpaca | (automatic) |
+| Evening | Read the day | `python fpb_paper_trader.py log` or `logs\runs\<date>.log` |
 
 ---
 
