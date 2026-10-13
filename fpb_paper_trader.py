@@ -39,6 +39,7 @@ import json
 import time
 import random
 import threading
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -60,6 +61,16 @@ ET = ZoneInfo("America/New_York")
 def now_et() -> datetime:
     """Current New York time, without timezone info (to compare with "09:35"-style settings)."""
     return datetime.now(ET).replace(tzinfo=None)
+
+
+# Alpaca order states that are final (the order will not change any more)
+ORDER_DONE = {'filled', 'canceled', 'expired', 'rejected', 'done_for_day', 'replaced'}
+STOP_TAG = "fpbstop"    # client_order_id prefix that marks the bot's own stop-loss orders
+
+
+def round_price(price: float) -> float:
+    """Prices sent to the broker: cents for stocks of $1+, 4 decimals below $1."""
+    return round(price, 2) if price >= 1 else round(price, 4)
 
 
 # === YOUR ALPACA KEYS (Paper Trading) ===
@@ -149,7 +160,8 @@ except ImportError:
 
 try:
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import MarketOrderRequest, ClosePositionRequest, GetOrdersRequest
+    from alpaca.trading.requests import (MarketOrderRequest, StopOrderRequest, ClosePositionRequest,
+                                         GetOrdersRequest)
     from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
@@ -217,6 +229,9 @@ class PositionStateManager:
                 'entry_slippage': entry_slippage,
                 'entry_slippage_pct': entry_slippage_pct,
                 'exit_slippage_total': 0.0,
+                'stop_order_id': None,      # the stop-loss order sitting at Alpaca
+                'stop_qty': None,           # shares that order covers
+                'stop_at': None,            # price that order triggers at
             }
             self._save()
     
@@ -462,16 +477,71 @@ class AlpacaClient:
             print(f"   ⚠️  Could not get positions from Alpaca: {e}")
             return None
 
-    def get_open_order_symbols(self) -> Optional[set]:
-        """Symbols with an order still working at Alpaca. None if Alpaca can't be reached."""
+    def get_open_orders(self) -> Optional[List[Dict]]:
+        """Orders still working at Alpaca: [{'symbol', 'id', 'client_order_id'}]. None if unreachable."""
         if self.sim_mode:
-            return set()
+            return []
         try:
             orders = self.trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
-            return {o.symbol for o in orders}
+            return [{'symbol': o.symbol, 'id': str(o.id), 'client_order_id': o.client_order_id or ''}
+                    for o in orders]
         except Exception as e:
             print(f"   ⚠️  Could not get open orders from Alpaca: {e}")
             return None
+
+    def place_stop(self, symbol: str, shares: int, direction: str, stop_price: float) -> Optional[str]:
+        """
+        Put a stop-loss order at Alpaca, so the trade stays protected even if the bot or
+        the PC stops. Returns the order id, or None (the bot then watches the stop itself).
+        """
+        if self.sim_mode:
+            return None
+        side = OrderSide.SELL if direction == "LONG" else OrderSide.BUY
+        price = round_price(stop_price)
+        try:
+            order = self.trading_client.submit_order(StopOrderRequest(
+                symbol=symbol,
+                qty=shares,
+                side=side,
+                stop_price=price,
+                time_in_force=TimeInForce.GTC,
+                client_order_id=f"{STOP_TAG}-{symbol}-{uuid.uuid4().hex[:12]}"
+            ))
+            word = "SELL" if side == OrderSide.SELL else "BUY"
+            print(f"   🛡️  Stop order at Alpaca: {word} {shares} {symbol} if price hits ${price}")
+            return str(order.id)
+        except Exception as e:
+            print(f"   ⚠️  Could not place a stop order at Alpaca: {e}. The bot watches the stop itself.")
+            return None
+
+    def get_order_fill(self, order_id) -> Optional[Tuple[str, Optional[float], int]]:
+        """(status, average fill price, shares filled) for an order. None if Alpaca can't be reached."""
+        try:
+            order = self.trading_client.get_order_by_id(order_id)
+        except Exception as e:
+            print(f"   ⚠️  Could not check order status: {e}")
+            return None
+        status = str(getattr(order.status, 'value', order.status)).lower()
+        filled = int(float(order.filled_qty or 0))
+        price = float(order.filled_avg_price) if order.filled_avg_price else None
+        return status, price, filled
+
+    def cancel_stop(self, order_id) -> Optional[Tuple[str, Optional[float], int]]:
+        """
+        Cancel one of our stop orders and wait for Alpaca to confirm. Returns the final
+        (status, fill price, shares filled): status 'filled' means the stop fired before the
+        cancel landed. None if Alpaca can't be reached.
+        """
+        try:
+            self.trading_client.cancel_order_by_id(order_id)
+        except Exception:
+            pass    # already filled or cancelled; the status check below tells us which
+        deadline = time.time() + FILL_WAIT_SECONDS
+        while True:
+            info = self.get_order_fill(order_id)
+            if info is None or info[0] in ORDER_DONE or time.time() >= deadline:
+                return info
+            time.sleep(0.5)
 
     def can_short(self, symbol: str) -> bool:
         """True if Alpaca lets us short this stock today (shortable and easy to borrow)."""
@@ -494,7 +564,7 @@ class AlpacaClient:
         If it's still not done after FILL_WAIT_SECONDS, cancel the rest so it can't
         fill later without the bot knowing.
         """
-        done = {'filled', 'canceled', 'expired', 'rejected', 'done_for_day'}
+        done = ORDER_DONE
         deadline = time.time() + FILL_WAIT_SECONDS
         order = None
         while True:
@@ -618,15 +688,50 @@ class AlpacaClient:
             print(f"❌ Error closing: {e}")
 
 
+def record_stop_fill(state: PositionStateManager, log: PaperTradeLog, symbol: str, pos: Dict,
+                     fill_price: float, filled: int):
+    """Alpaca's stop order closed (some of) the position: record it like any other exit."""
+    entry_price = pos['entry_price']
+    if pos['direction'] == "LONG":
+        pnl = (fill_price - entry_price) * filled
+        slippage = max(0, (pos['current_stop'] - fill_price) * filled)
+    else:
+        pnl = (entry_price - fill_price) * filled
+        slippage = max(0, (fill_price - pos['current_stop']) * filled)
+    total_pnl = pos['realized_pnl'] + pnl
+    stop_type = "BREAKEVEN STOP" if pos['hit_r1'] else "STOP LOSS"
+    print(f"\n🛑 {symbol}: Alpaca's {stop_type} order filled: {filled} @ ${fill_price:.2f} | PnL: ${pnl:.2f}")
+    log.log({
+        'type': 'SELL_STOP',
+        'symbol': symbol,
+        'shares': filled,
+        'stop_price': pos['current_stop'],
+        'fill_price': fill_price,
+        'slippage': slippage,
+        'pnl': pnl,
+        'total_pnl': total_pnl,
+        'was_breakeven': pos['hit_r1'],
+        'via': 'alpaca_stop_order',
+    })
+    remaining = pos['shares_remaining'] - filled
+    if remaining > 0:
+        state.update_position(symbol, shares_remaining=remaining, realized_pnl=total_pnl,
+                              stop_order_id=None, stop_qty=None, stop_at=None)
+    else:
+        state.remove_position(symbol)
+
+
 # ==============================================================================
 # BROKER SYNC (Alpaca is the truth; the bot's records must match it)
 # ==============================================================================
 class BrokerSync:
     """
     Compares the bot's records with what Alpaca actually holds and fixes the bot's side:
-    - Alpaca no longer holds a position  -> remove it from the bot's records
+    - Alpaca no longer holds a position  -> record it if our stop order closed it,
+                                            otherwise remove it from the bot's records
     - Alpaca holds a different share count -> use Alpaca's number
     - Alpaca holds something the bot didn't open -> leave it alone, warn, never trade it
+    - Our stop orders left without a position -> cancel them (they could open a new trade)
     If Alpaca can't be reached, sync() returns False and no new trades should be placed.
     """
 
@@ -644,18 +749,25 @@ class BrokerSync:
             return True     # simulation: the bot's records are the only truth
 
         positions = self.alpaca.get_positions()
-        open_orders = self.alpaca.get_open_order_symbols()
-        if positions is None or open_orders is None:
+        orders = self.alpaca.get_open_orders()
+        if positions is None or orders is None:
             print("   ⚠️  Can't confirm positions with Alpaca. No new trades until it answers.")
             return False
 
+        waiting = set()     # positions Alpaca hasn't listed yet; leave their stop orders alone
         for symbol, pos in self.state.get_all_positions().items():
             held = positions.get(symbol)
             bot_side = 'long' if pos['direction'] == "LONG" else 'short'
             if held is None:
                 just_entered = now_et() - datetime.fromisoformat(pos['entry_time']) < timedelta(seconds=60)
-                if symbol in open_orders or just_entered:
+                other_orders = [o for o in orders if o['symbol'] == symbol and o['id'] != pos.get('stop_order_id')]
+                if other_orders or just_entered:
+                    waiting.add(symbol)
                     continue    # an order is still working or Alpaca hasn't listed it yet; look again next time
+                stop = self.alpaca.get_order_fill(pos['stop_order_id']) if pos.get('stop_order_id') else None
+                if stop and stop[2] > 0:
+                    record_stop_fill(self.state, self.log, symbol, pos, stop[1], stop[2])
+                    continue
                 self._drop(symbol, pos, "Alpaca no longer holds it (closed outside the bot)")
             elif held['side'] != bot_side:
                 self._drop(symbol, pos, f"Alpaca holds a {held['side'].upper()} position, "
@@ -667,8 +779,26 @@ class BrokerSync:
                 self.log.log({'type': 'SYNC_QTY', 'symbol': symbol,
                               'bot_shares': pos['shares_remaining'], 'alpaca_shares': held['qty']})
 
+        # Our stop orders must match a position: a leftover one could open a brand-new trade
+        tracked = self.state.get_all_positions()
+        for o in orders:
+            if not o['client_order_id'].startswith(STOP_TAG):
+                continue
+            symbol = o['symbol']
+            if symbol in waiting:
+                continue
+            if symbol not in positions:
+                reason = "its position is gone"
+            elif symbol in tracked and tracked[symbol].get('stop_order_id') != o['id']:
+                reason = "it's a duplicate"
+            else:
+                continue    # protects a position (even one the bot didn't open today): keep it
+            print(f"   🧹 {symbol}: cancelling a leftover stop order at Alpaca ({reason}).")
+            self.alpaca.cancel_stop(o['id'])
+            orders = [x for x in orders if x['id'] != o['id']]
+
         self.broker_positions = positions
-        self.open_order_symbols = open_orders
+        self.open_order_symbols = {o['symbol'] for o in orders}
         self.unknown = set(positions) - set(self.state.get_all_positions())
         for symbol in sorted(self.unknown - self._warned):
             held = positions[symbol]
@@ -900,7 +1030,13 @@ class EntryScanner:
                     )
                     
                     trades_entered.append(symbol)
-                    
+
+                    # Protect it at Alpaca right away (the stop stays there even if the bot stops)
+                    stop_id = self.alpaca.place_stop(symbol, actual_shares, direction, signal['stop_price'])
+                    if stop_id:
+                        self.state.update_position(symbol, stop_order_id=stop_id, stop_qty=actual_shares,
+                                                   stop_at=round_price(signal['stop_price']))
+
                     # Log entry
                     entry_slippage = abs(fill_price - signal['entry_price'])
                     self.log.log({
@@ -966,12 +1102,100 @@ class PositionMonitor:
             slippage_per_share = fill_price - planned_price
         return max(0, slippage_per_share * shares)
     
+    # --- Stop-loss order at Alpaca -------------------------------------------------------
+
+    def _check_stop_order(self, symbol: str) -> Optional[str]:
+        """
+        Keep the stop-loss order at Alpaca in line with the position. Returns 'SELL_STOP' if
+        it already fired (the exit is recorded), 'HOLD' while it is filling, else None.
+        """
+        if self.alpaca.sim_mode:
+            return None
+        pos = self.state.get_position(symbol)
+        stop_id = pos.get('stop_order_id')
+        if stop_id:
+            info = self.alpaca.get_order_fill(stop_id)
+            if info is None:
+                return None              # can't reach Alpaca; keep watching prices
+            status, fill_price, filled = info
+            if filled > 0 and status in ORDER_DONE:
+                record_stop_fill(self.state, self.log, symbol, pos, fill_price, filled)
+                if not self.state.has_position(symbol):
+                    return 'SELL_STOP'
+            elif status == 'partially_filled':
+                return 'HOLD'            # the stop is filling right now
+            elif status in ORDER_DONE:
+                print(f"   ⚠️  {symbol}: the stop order at Alpaca is gone ({status}). Placing a new one.")
+                self.state.update_position(symbol, stop_order_id=None, stop_qty=None, stop_at=None)
+        if self._ensure_stop(symbol) == 'stop_filled':
+            return 'SELL_STOP'
+        return None
+
+    def _ensure_stop(self, symbol: str) -> Optional[str]:
+        """Keep exactly one stop order at Alpaca, matching the position's shares and stop price."""
+        pos = self.state.get_position(symbol)
+        if not pos or self.alpaca.sim_mode:
+            return None
+        want_qty, want_price = pos['shares_remaining'], round_price(pos['current_stop'])
+        if pos.get('stop_order_id'):
+            if pos.get('stop_qty') == want_qty and pos.get('stop_at') == want_price:
+                return None                       # already right
+            released = self._release_stop(symbol)
+            if released != 'released':
+                return released                   # it fired, or Alpaca didn't confirm the cancel
+            pos = self.state.get_position(symbol)
+        stop_id = self.alpaca.place_stop(symbol, want_qty, pos['direction'], want_price)
+        if stop_id:
+            self.state.update_position(symbol, stop_order_id=stop_id, stop_qty=want_qty, stop_at=want_price)
+        return None
+
+    def _release_stop(self, symbol: str) -> str:
+        """
+        Cancel our stop order so its shares can be closed (Alpaca won't sell shares a stop
+        order is holding). Returns 'released', 'stop_filled' (it fired first; the exit is
+        recorded) or 'not_confirmed' (Alpaca didn't confirm the cancel; try again next check).
+        """
+        pos = self.state.get_position(symbol)
+        stop_id = pos.get('stop_order_id') if pos else None
+        if not stop_id:
+            return 'released'
+        info = self.alpaca.cancel_stop(stop_id)
+        if info is None:
+            return 'not_confirmed'
+        status, fill_price, filled = info
+        if filled > 0:
+            record_stop_fill(self.state, self.log, symbol, pos, fill_price, filled)
+            return 'stop_filled'
+        if status not in ORDER_DONE:
+            return 'not_confirmed'
+        self.state.update_position(symbol, stop_order_id=None, stop_qty=None, stop_at=None)
+        return 'released'
+
+    def _start_exit(self, symbol: str) -> Optional[str]:
+        """Free the shares before an exit. Returns None to go ahead, or the result to return."""
+        released = self._release_stop(symbol)
+        if released == 'stop_filled':
+            return 'SELL_STOP'
+        if released != 'released':
+            return self._exit_failed(symbol)
+        return None
+
+    # --- Price checks ----------------------------------------------------------------------
+
     def check_position(self, symbol: str, verbose: bool = True) -> Optional[str]:
         """Check single position, return action taken"""
         pos = self.state.get_position(symbol)
         if not pos:
             return None
-        
+
+        # === STOP ORDER AT ALPACA: did it fire? is it in place and up to date? ===
+        result = self._check_stop_order(symbol)
+        if result:
+            return result
+        pos = self.state.get_position(symbol)
+        if not pos:
+            return None
+
         current_price = self.alpaca.get_current_price(symbol)
         if current_price is None:
             return 'HOLD'
@@ -1024,6 +1248,8 @@ class PositionMonitor:
                     if new_stop > current_stop:
                         self.state.update_position(symbol, current_stop=new_stop)
                         print(f"   📈 {symbol}: Trail stop raised to ${new_stop:.2f}")
+                        if self._ensure_stop(symbol) == 'stop_filled':   # move the stop at Alpaca too
+                            return 'SELL_STOP'
                         if current_price <= new_stop:
                             return self._exit_trail(symbol, pos, current_price, new_stop)
                 else:
@@ -1031,6 +1257,8 @@ class PositionMonitor:
                     if new_stop < current_stop:
                         self.state.update_position(symbol, current_stop=new_stop)
                         print(f"   📉 {symbol}: Trail stop lowered to ${new_stop:.2f}")
+                        if self._ensure_stop(symbol) == 'stop_filled':   # move the stop at Alpaca too
+                            return 'SELL_STOP'
                         if current_price >= new_stop:
                             return self._exit_trail(symbol, pos, current_price, new_stop)
         
@@ -1043,6 +1271,9 @@ class PositionMonitor:
         
         print(f"\n🎯 {symbol} HIT R1 TARGET!")
         
+        blocked = self._start_exit(symbol)
+        if blocked:
+            return blocked
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if not actual_shares:
             return self._exit_failed(symbol)
@@ -1065,7 +1296,7 @@ class PositionMonitor:
             exit_slippage_total=pos['exit_slippage_total'] + slippage
         )
         
-        print(f"   Closed {actual_shares} @${fill_price:.2f} | PnL: ${pnl:.2f}")
+        print(f"   Closed {actual_shares} @ ${fill_price:.2f} | PnL: ${pnl:.2f}")
         print(f"   Stop moved to breakeven (${entry_price:.2f}) | {new_shares} shares remaining")
         
         self.log.log({
@@ -1080,7 +1311,9 @@ class PositionMonitor:
         
         if new_shares <= 0:
             self.state.remove_position(symbol)
-        
+        else:
+            self._ensure_stop(symbol)   # new stop at Alpaca: remaining shares, at breakeven
+
         return 'SELL_R1'
     
     def _exit_r2(self, symbol: str, pos: Dict, current_price: float) -> str:
@@ -1088,6 +1321,9 @@ class PositionMonitor:
         
         print(f"\n🏆 {symbol} HIT R2 TARGET!")
         
+        blocked = self._start_exit(symbol)
+        if blocked:
+            return blocked
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if not actual_shares:
             return self._exit_failed(symbol)
@@ -1103,7 +1339,7 @@ class PositionMonitor:
         total_pnl = pos['realized_pnl'] + pnl
         total_slippage = pos['entry_slippage'] + pos['exit_slippage_total'] + slippage
         
-        print(f"   Closed {actual_shares} @${fill_price:.2f}")
+        print(f"   Closed {actual_shares} @ ${fill_price:.2f}")
         print(f"   💰 Total PnL: ${total_pnl:.2f} | Slippage: ${total_slippage:.2f}")
         
         self.log.log({
@@ -1127,6 +1363,9 @@ class PositionMonitor:
         
         print(f"\n🛑 {symbol} HIT {stop_type}!")
         
+        blocked = self._start_exit(symbol)
+        if blocked:
+            return blocked
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if not actual_shares:
             return self._exit_failed(symbol)
@@ -1141,7 +1380,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Closed {actual_shares} @${fill_price:.2f} | PnL: ${pnl:.2f}")
+        print(f"   Closed {actual_shares} @ ${fill_price:.2f} | PnL: ${pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_STOP',
@@ -1163,6 +1402,9 @@ class PositionMonitor:
         
         print(f"\n📉 {symbol} HIT TRAILING STOP!")
         
+        blocked = self._start_exit(symbol)
+        if blocked:
+            return blocked
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if not actual_shares:
             return self._exit_failed(symbol)
@@ -1177,7 +1419,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Closed {actual_shares} @${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
+        print(f"   Closed {actual_shares} @ ${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_TRAIL',
@@ -1203,6 +1445,9 @@ class PositionMonitor:
         
         print(f"\n⏰ EOD EXIT: {symbol}")
         
+        blocked = self._start_exit(symbol)
+        if blocked:
+            return blocked
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
         if not actual_shares:
             return self._exit_failed(symbol)
@@ -1215,7 +1460,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Closed {actual_shares} @${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
+        print(f"   Closed {actual_shares} @ ${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_EOD',
@@ -1232,6 +1477,7 @@ class PositionMonitor:
     def _exit_failed(self, symbol: str) -> str:
         """Nothing filled: keep the position (Alpaca still holds it) and try again next check."""
         print(f"   ⚠️  {symbol}: exit did not go through. Keeping the position; will try again.")
+        self._ensure_stop(symbol)   # put the protective stop back if it was cancelled for the exit
         return 'EXIT_FAILED'
 
     def _finish_exit(self, symbol: str, pos: Dict, filled: int, pnl: float):
@@ -1242,6 +1488,7 @@ class PositionMonitor:
                   f"Keeping {remaining}; will try again.")
             self.state.update_position(symbol, shares_remaining=remaining,
                                        realized_pnl=pos['realized_pnl'] + pnl)
+            self._ensure_stop(symbol)   # protect the shares that are still open
         else:
             self.state.remove_position(symbol)
 
