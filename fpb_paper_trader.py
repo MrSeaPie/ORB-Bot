@@ -68,6 +68,22 @@ ORDER_DONE = {'filled', 'canceled', 'expired', 'rejected', 'done_for_day', 'repl
 STOP_TAG = "fpbstop"    # client_order_id prefix that marks the bot's own stop-loss orders
 
 
+def keep_pc_awake(on: bool) -> bool:
+    """
+    Ask Windows not to go to sleep while the bot is trading (like a video player does; the
+    screen can still turn off). Ends by itself when the bot exits. Returns True if Windows agreed.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0)
+        return ctypes.windll.kernel32.SetThreadExecutionState(flags) != 0
+    except Exception:
+        return False
+
+
 def round_price(price: float) -> float:
     """Prices sent to the broker: cents for stocks of $1+, 4 decimals below $1."""
     return round(price, 2) if price >= 1 else round(price, 4)
@@ -1624,6 +1640,9 @@ class TradingEngine:
             return
         eod_exit_time, market_close_time = close_times
 
+        # A sleeping PC would freeze the bot mid-trade; keep Windows awake until we're done
+        awake = keep_pc_awake(True)
+
         print("\n" + "="*70)
         print("🚀 FPB TRADING ENGINE v3 STARTED")
         print("="*70)
@@ -1633,8 +1652,10 @@ class TradingEngine:
         print(f"🛑 EOD exit: {eod_exit_time}" +
               (f" (early close today at {market_close_time})" if market_close_time < MARKET_CLOSE_TIME else ""))
         print(f"⏹️  Press Ctrl+C to stop")
+        if awake:
+            print("💡 Keeping the PC awake until the bot stops (the screen can still turn off)")
         print("="*70)
-        
+
         # Start from what Alpaca actually holds, not from memory
         print("\n🔄 Checking positions with Alpaca...")
         if not self.sync.sync():
@@ -1724,6 +1745,7 @@ class TradingEngine:
         
         # Final summary
         self._print_summary()
+        keep_pc_awake(False)
     
     def _print_summary(self):
         """Print end-of-session summary"""
