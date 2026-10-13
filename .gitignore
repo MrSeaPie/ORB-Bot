@@ -6,6 +6,9 @@ secrets*
 # Personal notes: stay on the PC while the GitHub repo is public
 PROJECT_HISTORY.md
 
+# Daily console logs from run_bot.bat (the trade logs in logs/paper_trades are kept)
+logs/runs/
+
 # Python junk
 __pycache__/
 *.pyc

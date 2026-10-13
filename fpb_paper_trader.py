@@ -161,7 +161,7 @@ except ImportError:
 try:
     from alpaca.trading.client import TradingClient
     from alpaca.trading.requests import (MarketOrderRequest, StopOrderRequest, ClosePositionRequest,
-                                         GetOrdersRequest)
+                                         GetOrdersRequest, GetCalendarRequest)
     from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
@@ -394,6 +394,24 @@ class AlpacaClient:
     
     def get_risk_dollars(self) -> float:
         return self.equity * RISK_PERCENT / 100
+
+    def get_market_hours_today(self) -> Optional[Tuple[str, str]]:
+        """
+        Today's regular session in New York time, e.g. ("09:30", "16:00"); ("", "") if the
+        market is closed today (weekend or holiday); None if Alpaca can't be reached.
+        """
+        if self.sim_mode:
+            return ("09:30", "16:00")
+        today = now_et().date()
+        try:
+            days = self.trading_client.get_calendar(GetCalendarRequest(start=today, end=today))
+        except Exception as e:
+            print(f"   ⚠️  Could not get today's market hours from Alpaca: {e}")
+            return None
+        for day in days:
+            if str(day.date)[:10] == today.isoformat():
+                return day.open.strftime("%H:%M"), day.close.strftime("%H:%M")
+        return ("", "")
 
     def get_buying_power(self) -> Optional[float]:
         """Money Alpaca lets us use for a new trade right now (also refreshes equity). None if unknown."""
@@ -1507,6 +1525,19 @@ class PositionMonitor:
             self.check_position(symbol, verbose=verbose)
 
 
+def todays_close_times(alpaca: AlpacaClient) -> Optional[Tuple[str, str]]:
+    """
+    (time to close all positions, market close) for today, following Alpaca's calendar so
+    early-close days (e.g. the day after Thanksgiving) work. None if the market is closed today.
+    """
+    hours = alpaca.get_market_hours_today()
+    if hours == ("", ""):
+        return None
+    market_close = min(hours[1], MARKET_CLOSE_TIME) if hours else MARKET_CLOSE_TIME
+    five_before = (datetime.strptime(market_close, "%H:%M") - timedelta(minutes=5)).strftime("%H:%M")
+    return min(EOD_EXIT_TIME, five_before), market_close
+
+
 def close_all_tracked(monitor: PositionMonitor, sync: BrokerSync, tries: int = 3) -> bool:
     """Close every position the bot opened, confirm with Alpaca, and retry a few times."""
     for attempt in range(tries):
@@ -1565,13 +1596,21 @@ class TradingEngine:
     
     def run(self):
         """Main loop - runs until market close"""
+        # Is the market open today, and does it close early? (Alpaca's calendar)
+        close_times = todays_close_times(self.alpaca)
+        if close_times is None:
+            print(f"\n📅 {now_et().strftime('%A %Y-%m-%d')}: the market is closed today. Nothing to do.")
+            return
+        eod_exit_time, market_close_time = close_times
+
         print("\n" + "="*70)
         print("🚀 FPB TRADING ENGINE v3 STARTED")
         print("="*70)
-        print(f"📅 {now_et().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"📅 {now_et().strftime('%Y-%m-%d %H:%M:%S')} (New York time)")
         print(f"⏰ Scanning for entries: {SCAN_START_TIME} - {SCAN_END_TIME} (every {SCAN_INTERVAL//60} min)")
         print(f"👁️  Monitoring positions: every {MONITOR_INTERVAL} seconds")
-        print(f"🛑 EOD exit: {EOD_EXIT_TIME}")
+        print(f"🛑 EOD exit: {eod_exit_time}" +
+              (f" (early close today at {market_close_time})" if market_close_time < MARKET_CLOSE_TIME else ""))
         print(f"⏹️  Press Ctrl+C to stop")
         print("="*70)
         
@@ -1596,12 +1635,12 @@ class TradingEngine:
                 iteration += 1
                 
                 # === CHECK MARKET CLOSE ===
-                if current_time >= MARKET_CLOSE_TIME:
+                if current_time >= market_close_time:
                     print("\n⏹️  Market closed. Shutting down.")
                     break
-                
+
                 # === CHECK EOD EXIT ===
-                if current_time >= EOD_EXIT_TIME:
+                if current_time >= eod_exit_time:
                     print("\n⏰ EOD EXIT TIME")
                     if close_all_tracked(self.monitor, self.sync):
                         print("\n✅ All positions closed (confirmed with Alpaca). Shutting down.")
@@ -1735,6 +1774,8 @@ def cmd_monitor():
 
     monitor = PositionMonitor(alpaca, state, log)
     loops = 0
+    close_times = todays_close_times(alpaca)
+    eod_exit_time = close_times[0] if close_times else EOD_EXIT_TIME
 
     try:
         while True:
@@ -1742,7 +1783,7 @@ def cmd_monitor():
             current_time = now.strftime("%H:%M")
             loops += 1
 
-            if current_time >= EOD_EXIT_TIME:
+            if current_time >= eod_exit_time:
                 print("\n⏰ EOD - Closing all")
                 close_all_tracked(monitor, sync)
                 break

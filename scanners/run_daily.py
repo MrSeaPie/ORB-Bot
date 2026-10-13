@@ -27,6 +27,13 @@ import subprocess
 from datetime import datetime
 import time
 
+# Emoji-safe printing, even when output goes to a file (e.g. when Task Scheduler runs this)
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
