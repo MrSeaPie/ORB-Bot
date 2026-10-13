@@ -2,8 +2,8 @@
 > Last Updated: October 12, 2026 (first written Dec 31, 2025; the old "2024" date was a typo)
 > Location: the `ORB-Bot` folder (on Hassan's PC: `C:\Users\Hassan\ORB-Bot\`)
 >
-> ⚠️ The paper trader has known bugs (shorts, broker sync, order size). See `CLAUDE.md`.
-> Don't run it until they're fixed.
+> ⚠️ The paper trader still has known bugs (order size, no stop orders at Alpaca, stale signals).
+> See `CLAUDE.md`. Don't run it until they're fixed.
 
 ---
 

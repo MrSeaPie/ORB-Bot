@@ -48,6 +48,12 @@ Agreed approach, simplest first:
 2. Track-record lookup (which strategy worked on similar past days).
 3. Machine learning only later, with lots of data and out-of-sample testing.
 
+Architecture plan (agreed 2026-10-12, "mini quant fund"): after the plumbing bugs and before a
+second strategy, split `fpb_paper_trader.py` into shared layers every strategy reuses: data →
+strategy plug-ins (each only says symbol, direction, entry, stop, targets) → selector → risk &
+sizing → execution + `BrokerSync` → logging & per-strategy performance. Adding a strategy should
+then mean writing only its signal rules, tested with the same backtester.
+
 Principles: each strategy must be profitable on its own before it goes into the selector;
 always test on data the bot has not seen (avoid overfitting); "sit out" is a valid choice;
 do not use a chatbot as the live trading brain — the bot runs on testable rules.
@@ -55,8 +61,12 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
 ## Current Status (as of 2026-10-12)
 - Paper trading ran Jan 4 – Feb 5, 2026 (logs in `logs/paper_trades/`): ~3 real round trips.
   Plumbing bugs left stuck positions (MVST long 805, SOFI short, GOOGL short 42), about
-  -$3.4k unrealized, which blocked every later trade. User to close them by hand in Alpaca.
-  **Do NOT run the bot until bugs 1–3 below are fixed.**
+  -$3.4k unrealized, which blocked every later trade.
+- 2026-10-12 read-only check of the Alpaca paper account: equity $6,565.84, NO open positions
+  or orders (stuck ones are closed), shorting enabled, 4x margin. Alpaca no longer reports any
+  pattern-day-trader fields for this account (no `pattern_day_trader`, `daytrade_count`,
+  `pdt_check`). Re-check day-trading rules before going live.
+  **Do NOT run the bot until bug 3 below is fixed.**
 - Strategy is unvalidated: every backtest sample is under 75 trades.
 - 2026-10-12 done: keys moved to `.env`; repo cleaned (99 unused files removed);
   paths made relative; requirements.txt fixed; docs rewritten; all pushed to GitHub.
@@ -67,13 +77,21 @@ In `fpb_paper_trader.py`:
 1. ✅ DONE 2026-10-12. **Short exits made the short bigger** (every exit called `sell()`;
    GOOGL 21 → 42, SOFI 214 → 428). Now all exits go through `AlpacaClient.close()`, which uses
    Alpaca's close-position order: right side automatically, can only shrink a position.
-   Entries: `buy()` for longs, `sell_short()` for shorts. `ALLOW_SHORTS = False` (longs only).
-   Tested on a fake broker: old code replays GOOGL to -42, new code to 0.
-2. **"Amnesia"** → `get_positions()` hides errors (`except: return {}`), and the bot only trusts
-   its own state file. Read real Alpaca positions and open orders on startup and before every
-   scan/order; stop if that call fails; flag positions the bot didn't open.
-   Also: when an exit order FAILS, every `_exit_*` falls back to `fill_price = current_price`
-   and removes the position from state, logging a fake fill. It must keep the position instead.
+   Entries: `buy()` for longs, `sell_short()` for shorts. Tested on a fake broker.
+2. ✅ DONE 2026-10-12. **"Amnesia"** fixed with `BrokerSync` (Alpaca is the truth):
+   - sync at startup (stop if Alpaca unreachable), before every scan, right before every order,
+     every 60 s while monitoring, and after the end-of-day close (`close_all_tracked`, 3 tries,
+     loud warning if anything is still open).
+   - Alpaca doesn't hold it → removed from bot records (60 s grace for brand-new entries);
+     different share count → use Alpaca's; held but not opened by the bot (e.g. a leftover from
+     another day) → warned once, never traded or closed, counts toward MAX_POSITIONS.
+   - `get_positions()` returns None (unknown) on error, never {} ("own nothing").
+   - Orders confirm real fills (`_wait_for_fill`, cancels the rest after 10 s). Failed exits keep
+     the position and retry; partial exits keep the unfilled shares. No more fake fills in logs.
+   - Keys set but Alpaca unreachable at startup → stop (no silent switch to simulation).
+   - Shorts are ON (`ALLOW_SHORTS = True`, user's choice): only shortable + easy-to-borrow
+     stocks; never enters a stock Alpaca already holds or has an order for (no flips, bug 9).
+   Tested: 33 fake-broker checks; read-only sync and `status` against the real paper account.
 3. **No "can I afford this?" check** → shares = risk ÷ stop distance only. QS asked for
    1,618 shares (~$11.5k) on a ~$7.6k account. Cap by buying power ÷ open slots.
 4. ✅ DONE 2026-10-12. Keys live only in `.env` (git-ignored). Never in git history.
@@ -82,7 +100,7 @@ In `fpb_paper_trader.py`:
    Only act on signals from the last bar or two.
 7. ✅ DONE 2026-10-12. Hardcoded paths removed (bot, strategy and scanners).
 8. **Rejected signals retried every 5 min** (QS, MSTR, MARA) → one attempt per ticker per day.
-9. **Order that would flip a position is rejected** by Alpaca (SOFI buy 376 while short 52).
+9. ✅ Covered by bug 2's fix: the bot never enters a stock Alpaca already holds.
 10. **Mistyped command starts trading** → unknown command falls through to `cmd_run()`.
 11. **End-of-day close needs the script running** → needs a scheduler (Task Scheduler) later.
     Note: the bot prints emoji; with output redirected to a file, Windows' default encoding
@@ -102,7 +120,7 @@ the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
 1. Risk: $250 fixed (strategy docs) or 1% of account (paper trader, current code)?
 2. Exit: FPB rules say out by 11:00 (hard exit 11:30); paper trader holds until 3:55.
 3. Gap minimum 3% or 4%? Stop under candle low or under 20 EMA? Candle body min 15% or 30%?
-4. Shorts are OFF (`ALLOW_SHORTS = False`) since 2026-10-12. When should they come back on?
+4. ~~Shorts?~~ Answered 2026-10-12: user wants both long and short. `ALLOW_SHORTS = True`.
 5. Make the GitHub repo private? (Then PROJECT_HISTORY.md can be uploaded too.)
 6. What tells *him* a day is a "long day" vs a "short day"?
 
@@ -118,7 +136,7 @@ the bot agree on what's owned. Judge the strategy only after 150+ clean trades.
   FPB v2/v3 logs. Snapshot commit `ac3d2db` holds the pre-cleanup state.
 
 ## Next Steps
-1. Fix paper-trading bugs 2, 3 (in that order), then 5, 6, 8–10. One at a time, tested.
+1. Fix paper-trading bug 3 (size cap / buying power), then 5, 6, 8, 10. One at a time, tested.
 2. Fix the stale pre-market merge; review `universe.txt` with the user.
 3. Add Alpaca historical data loader; re-run FPB backtest on a large sample (200+ trades),
    with slippage, on the right stocks; compare with/without the low-volume pullback rule.

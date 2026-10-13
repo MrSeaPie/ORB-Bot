@@ -73,6 +73,8 @@ DEFAULT_CAPITAL = 10000.0       # Fallback if can't get account equity
 SCAN_INTERVAL = 300             # Scan for NEW entries every 5 minutes (300 sec)
 MONITOR_INTERVAL = 10           # Check EXISTING positions every 10 seconds
 EMA_CHECK_INTERVAL = 6          # Update trailing stop every 6th monitor cycle (60 sec)
+SYNC_CHECK_INTERVAL = 6         # Re-check positions with Alpaca every 6th monitor cycle (60 sec)
+FILL_WAIT_SECONDS = 10          # How long to wait for Alpaca to confirm an order filled
 SCAN_START_TIME = "09:35"       # Start scanning for entries
 SCAN_END_TIME = "11:00"         # Stop scanning for new entries
 EOD_EXIT_TIME = "15:55"         # Close all positions
@@ -82,7 +84,7 @@ MARKET_CLOSE_TIME = "16:00"     # Stop everything
 TARGET_R1 = 1.5                 # First target (sell half)
 TARGET_R2 = 3.0                 # Second target (close rest)
 USE_EMA_TRAIL = True            # Trail with 9 EMA after R1
-ALLOW_SHORTS = False            # False = longs only (until longs are proven). True = also short
+ALLOW_SHORTS = True             # True = trade LONG and SHORT setups. False = longs only
 
 # === SIMULATION SETTINGS ===
 SIM_SLIPPAGE_PCT = 0.15         # Simulate 0.15% slippage in sim mode
@@ -127,8 +129,8 @@ except ImportError:
 
 try:
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import MarketOrderRequest, ClosePositionRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.requests import MarketOrderRequest, ClosePositionRequest, GetOrdersRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
     ALPACA_AVAILABLE = True
@@ -311,7 +313,9 @@ class AlpacaClient:
         self.connected = False
         self.equity = DEFAULT_CAPITAL
         self.sim_mode = False
-        
+        self.shorting_enabled = True
+        self._shortable: Dict[str, bool] = {}
+
         if not ALPACA_AVAILABLE:
             print("⚠️  Running in SIMULATION mode (no Alpaca)")
             self.sim_mode = True
@@ -338,15 +342,20 @@ class AlpacaClient:
             account = self.trading_client.get_account()
             self.connected = True
             self.equity = float(account.equity)
-            
+            self.shorting_enabled = bool(account.shorting_enabled)
+
             print(f"✅ Connected to Alpaca PAPER Trading")
             print(f"   Equity: ${self.equity:,.2f}")
             print(f"   Buying Power: ${float(account.buying_power):,.2f}")
-            
+            if not self.shorting_enabled:
+                print("   ⚠️  Shorting is disabled on this Alpaca account: SHORT setups will be skipped")
+
         except Exception as e:
+            # Keys are set, so real positions may exist. Pretending (simulation) here would let the
+            # bot "close" trades on paper while the real ones stay open, so stop instead.
             print(f"❌ Alpaca connection failed: {e}")
-            print("   Running in SIMULATION mode\n")
-            self.sim_mode = True
+            print("   Stopping. Check your internet connection and the keys in .env, then try again.")
+            sys.exit(1)
     
     def get_risk_dollars(self) -> float:
         return self.equity * RISK_PERCENT / 100
@@ -399,20 +408,87 @@ class AlpacaClient:
             pass
         return None
     
-    def get_positions(self) -> Dict:
+    def get_positions(self) -> Optional[Dict]:
+        """
+        What Alpaca actually holds: {symbol: {'qty', 'side', ...}}. 'qty' is always
+        positive; 'side' is 'long' or 'short'. Returns None if Alpaca can't be reached,
+        which callers must treat as "unknown", never as "we own nothing".
+        """
         if self.sim_mode:
             return {}
         try:
             positions = self.trading_client.get_all_positions()
             return {p.symbol: {
-                'qty': int(float(p.qty)),
+                'qty': abs(int(float(p.qty))),
+                'side': str(getattr(p.side, 'value', p.side)).lower(),
                 'entry': float(p.avg_entry_price),
                 'current': float(p.current_price),
                 'pnl': float(p.unrealized_pl),
                 'pnl_pct': float(p.unrealized_plpc) * 100
             } for p in positions}
-        except:
-            return {}
+        except Exception as e:
+            print(f"   ⚠️  Could not get positions from Alpaca: {e}")
+            return None
+
+    def get_open_order_symbols(self) -> Optional[set]:
+        """Symbols with an order still working at Alpaca. None if Alpaca can't be reached."""
+        if self.sim_mode:
+            return set()
+        try:
+            orders = self.trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
+            return {o.symbol for o in orders}
+        except Exception as e:
+            print(f"   ⚠️  Could not get open orders from Alpaca: {e}")
+            return None
+
+    def can_short(self, symbol: str) -> bool:
+        """True if Alpaca lets us short this stock today (shortable and easy to borrow)."""
+        if self.sim_mode:
+            return True
+        if not self.shorting_enabled:
+            return False
+        if symbol not in self._shortable:
+            try:
+                asset = self.trading_client.get_asset(symbol)
+                self._shortable[symbol] = bool(asset.shortable and asset.easy_to_borrow)
+            except Exception as e:
+                print(f"   ⚠️  Could not check if {symbol} can be shorted: {e}")
+                return False
+        return self._shortable[symbol]
+
+    def _wait_for_fill(self, order_id) -> Tuple[Optional[float], int]:
+        """
+        Ask Alpaca how an order actually filled: (average fill price, shares filled).
+        If it's still not done after FILL_WAIT_SECONDS, cancel the rest so it can't
+        fill later without the bot knowing.
+        """
+        done = {'filled', 'canceled', 'expired', 'rejected', 'done_for_day'}
+        deadline = time.time() + FILL_WAIT_SECONDS
+        order = None
+        while True:
+            try:
+                order = self.trading_client.get_order_by_id(order_id)
+            except Exception as e:
+                print(f"   ⚠️  Could not check order status: {e}")
+            status = str(getattr(order.status, 'value', order.status)).lower() if order else ''
+            if status in done or time.time() >= deadline:
+                break
+            time.sleep(0.5)
+
+        if order is None:
+            return None, 0
+        if status not in done:
+            print(f"   ⚠️  Order not finished after {FILL_WAIT_SECONDS}s ({status}). Cancelling the rest.")
+            try:
+                self.trading_client.cancel_order_by_id(order_id)
+                time.sleep(1)
+                order = self.trading_client.get_order_by_id(order_id)
+            except Exception as e:
+                print(f"   ⚠️  Cancel failed: {e}")
+
+        filled = int(float(order.filled_qty or 0))
+        price = float(order.filled_avg_price) if order.filled_avg_price else None
+        return (price, filled) if filled > 0 else (None, 0)
     
     def buy(self, symbol: str, shares: int, direction: str = "LONG") -> Tuple[Optional[float], int]:
         if self.sim_mode:
@@ -430,15 +506,14 @@ class AlpacaClient:
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.DAY
             )
-            self.trading_client.submit_order(order)
-            print(f"   ✅ BUY {shares} {symbol}")
-            
-            time.sleep(2)
-            positions = self.get_positions()
-            if symbol in positions:
-                return positions[symbol]['entry'], positions[symbol]['qty']
-            return self.get_current_price(symbol), shares
-            
+            submitted = self.trading_client.submit_order(order)
+            fill_price, filled = self._wait_for_fill(submitted.id)
+            if filled:
+                print(f"   ✅ BUY {filled} {symbol} @ ${fill_price:.2f}")
+            else:
+                print(f"   ❌ BUY {shares} {symbol} did not fill")
+            return fill_price, filled
+
         except Exception as e:
             print(f"   ❌ BUY failed: {e}")
             return None, 0
@@ -460,10 +535,13 @@ class AlpacaClient:
                 side=OrderSide.SELL,
                 time_in_force=TimeInForce.DAY
             )
-            self.trading_client.submit_order(order)
-            print(f"   ✅ SELL SHORT {shares} {symbol}")
-            time.sleep(1)
-            return self.get_current_price(symbol), shares
+            submitted = self.trading_client.submit_order(order)
+            fill_price, filled = self._wait_for_fill(submitted.id)
+            if filled:
+                print(f"   ✅ SELL SHORT {filled} {symbol} @ ${fill_price:.2f}")
+            else:
+                print(f"   ❌ SELL SHORT {shares} {symbol} did not fill")
+            return fill_price, filled
 
         except Exception as e:
             print(f"   ❌ SELL SHORT failed: {e}")
@@ -485,10 +563,13 @@ class AlpacaClient:
             return None, 0
 
         try:
-            self.trading_client.close_position(symbol, ClosePositionRequest(qty=str(shares)))
-            print(f"   ✅ {action} {shares} {symbol}")
-            time.sleep(1)
-            return self.get_current_price(symbol), shares
+            submitted = self.trading_client.close_position(symbol, ClosePositionRequest(qty=str(shares)))
+            fill_price, filled = self._wait_for_fill(submitted.id)
+            if filled:
+                print(f"   ✅ {action} {filled} {symbol} @ ${fill_price:.2f}")
+            else:
+                print(f"   ❌ {action} {shares} {symbol} did not fill")
+            return fill_price, filled
 
         except Exception as e:
             print(f"   ❌ {action} failed: {e}")
@@ -506,16 +587,91 @@ class AlpacaClient:
 
 
 # ==============================================================================
+# BROKER SYNC (Alpaca is the truth; the bot's records must match it)
+# ==============================================================================
+class BrokerSync:
+    """
+    Compares the bot's records with what Alpaca actually holds and fixes the bot's side:
+    - Alpaca no longer holds a position  -> remove it from the bot's records
+    - Alpaca holds a different share count -> use Alpaca's number
+    - Alpaca holds something the bot didn't open -> leave it alone, warn, never trade it
+    If Alpaca can't be reached, sync() returns False and no new trades should be placed.
+    """
+
+    def __init__(self, alpaca: AlpacaClient, state: PositionStateManager, log: PaperTradeLog):
+        self.alpaca = alpaca
+        self.state = state
+        self.log = log
+        self.broker_positions: Dict[str, Dict] = {}
+        self.open_order_symbols: set = set()
+        self.unknown: set = set()       # held at Alpaca, not opened by the bot
+        self._warned: set = set()
+
+    def sync(self) -> bool:
+        if self.alpaca.sim_mode:
+            return True     # simulation: the bot's records are the only truth
+
+        positions = self.alpaca.get_positions()
+        open_orders = self.alpaca.get_open_order_symbols()
+        if positions is None or open_orders is None:
+            print("   ⚠️  Can't confirm positions with Alpaca. No new trades until it answers.")
+            return False
+
+        for symbol, pos in self.state.get_all_positions().items():
+            held = positions.get(symbol)
+            bot_side = 'long' if pos['direction'] == "LONG" else 'short'
+            if held is None:
+                just_entered = datetime.now() - datetime.fromisoformat(pos['entry_time']) < timedelta(seconds=60)
+                if symbol in open_orders or just_entered:
+                    continue    # an order is still working or Alpaca hasn't listed it yet; look again next time
+                self._drop(symbol, pos, "Alpaca no longer holds it (closed outside the bot)")
+            elif held['side'] != bot_side:
+                self._drop(symbol, pos, f"Alpaca holds a {held['side'].upper()} position, "
+                                        f"the bot thought {pos['direction']}")
+            elif held['qty'] != pos['shares_remaining']:
+                print(f"   🔄 {symbol}: bot had {pos['shares_remaining']} shares, "
+                      f"Alpaca has {held['qty']}. Using Alpaca's number.")
+                self.state.update_position(symbol, shares_remaining=held['qty'])
+                self.log.log({'type': 'SYNC_QTY', 'symbol': symbol,
+                              'bot_shares': pos['shares_remaining'], 'alpaca_shares': held['qty']})
+
+        self.broker_positions = positions
+        self.open_order_symbols = open_orders
+        self.unknown = set(positions) - set(self.state.get_all_positions())
+        for symbol in sorted(self.unknown - self._warned):
+            held = positions[symbol]
+            print(f"   ⚠️  {symbol}: Alpaca holds {held['qty']} shares {held['side'].upper()} that the bot "
+                  f"didn't open today. The bot won't trade or close it; close it in Alpaca if unwanted.")
+            self._warned.add(symbol)
+        return True
+
+    def _drop(self, symbol: str, pos: Dict, reason: str):
+        print(f"   🔄 {symbol}: {reason}. Removed from the bot's records.")
+        self.state.remove_position(symbol)
+        self.log.log({'type': 'SYNC_REMOVED', 'symbol': symbol,
+                      'shares': pos['shares_remaining'], 'reason': reason})
+
+    def slots_used(self) -> int:
+        """Positions counting toward MAX_POSITIONS, including ones the bot didn't open."""
+        return self.state.position_count() + len(self.unknown)
+
+    def is_busy(self, symbol: str) -> bool:
+        """True if Alpaca already holds this stock or has an order working for it."""
+        return symbol in self.broker_positions or symbol in self.open_order_symbols
+
+
+# ==============================================================================
 # ENTRY SCANNER (runs periodically)
 # ==============================================================================
 class EntryScanner:
     """Scans for new FPB entries"""
     
-    def __init__(self, alpaca: AlpacaClient, state: PositionStateManager, 
-                 log: PaperTradeLog):
+    def __init__(self, alpaca: AlpacaClient, state: PositionStateManager,
+                 log: PaperTradeLog, sync: Optional[BrokerSync] = None):
         self.alpaca = alpaca
         self.state = state
         self.log = log
+        self.sync = sync or BrokerSync(alpaca, state, log)
         self.strategy = None
         self.symbols = []
         self.last_scan_time = None
@@ -552,9 +708,12 @@ class EntryScanner:
         if current_time > SCAN_END_TIME:
             return []
         
+        # Confirm with Alpaca what we really hold before looking for new trades
+        if not self.sync.sync():
+            return []
+
         # Check position limit
-        current_positions = self.state.position_count()
-        if current_positions >= MAX_POSITIONS:
+        if self.sync.slots_used() >= MAX_POSITIONS:
             return []
         
         # Get symbols we've already traded today (don't re-enter)
@@ -565,14 +724,14 @@ class EntryScanner:
         print(f"\n[{now.strftime('%H:%M:%S')}] 🔍 Scanning for FPB entries...")
         
         for symbol in self.symbols:
-            # Skip if already in position or traded today
-            if self.state.has_position(symbol):
+            # Skip if already in position (bot or Alpaca), an order is working, or traded today
+            if self.state.has_position(symbol) or self.sync.is_busy(symbol):
                 continue
             if symbol in traded_today:
                 continue
-            
+
             # Check position limit again (might have filled during loop)
-            if self.state.position_count() + len(trades_entered) >= MAX_POSITIONS:
+            if self.sync.slots_used() >= MAX_POSITIONS:
                 break
             
             # Download fresh data
@@ -601,12 +760,18 @@ class EntryScanner:
                 if not had_spike:
                     continue
 
-                # Longs only unless shorts are switched on (say so once per symbol)
-                if direction == "SHORT" and not ALLOW_SHORTS:
-                    if symbol not in self.skipped_shorts:
-                        print(f"   ⏭️  {symbol}: SHORT setup skipped (ALLOW_SHORTS = False)")
-                        self.skipped_shorts.add(symbol)
-                    continue
+                # Shorts only if switched on and Alpaca allows shorting this stock (say so once)
+                if direction == "SHORT":
+                    reason = None
+                    if not ALLOW_SHORTS:
+                        reason = "ALLOW_SHORTS = False"
+                    elif not self.alpaca.can_short(symbol):
+                        reason = "Alpaca says it can't be shorted today"
+                    if reason:
+                        if symbol not in self.skipped_shorts:
+                            print(f"   ⏭️  {symbol}: SHORT setup skipped ({reason})")
+                            self.skipped_shorts.add(symbol)
+                        continue
 
                 # Get spike levels
                 early_df = today_df.iloc[:3]
@@ -627,8 +792,16 @@ class EntryScanner:
                 print(f"   Stop: ${signal['stop_price']:.2f}")
                 print(f"   Targets: ${signal['target_r1']:.2f} / ${signal['target_r2']:.2f}")
                 print(f"   Shares: {signal['shares']} (${signal['risk_dollars']:.0f} risk)")
+                # Last check with Alpaca right before ordering
+                if not self.sync.sync():
+                    break
+                if self.sync.slots_used() >= MAX_POSITIONS:
+                    break
+                if self.sync.is_busy(symbol):
+                    print(f"   ⏭️  {symbol}: skipped, Alpaca already has a position or order for it")
+                    continue
                 print(f"   → Entering trade...")
-                
+
                 # Enter trade
                 if direction == "LONG":
                     fill_price, actual_shares = self.alpaca.buy(symbol, signal['shares'], direction)
@@ -668,15 +841,16 @@ class EntryScanner:
                     })
                     
             except Exception as e:
-                # Skip symbols that error
+                # Skip symbols that error, but say why
+                print(f"   ⚠️  {symbol}: skipped after an error ({e})")
                 continue
-        
+
         self.last_scan_time = now
-        
+
         if trades_entered:
             print(f"\n📊 Scan complete: {len(trades_entered)} new trades entered")
         else:
-            positions = self.state.position_count()
+            positions = self.sync.slots_used()
             print(f"   No new setups found. ({positions}/{MAX_POSITIONS} positions)")
         
         return trades_entered
@@ -781,9 +955,8 @@ class PositionMonitor:
         print(f"\n🎯 {symbol} HIT R1 TARGET!")
         
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
-        if fill_price is None:
-            fill_price = current_price
-            actual_shares = shares_to_sell
+        if not actual_shares:
+            return self._exit_failed(symbol)
         
         slippage = self._calculate_exit_slippage(fill_price, pos['target_r1'], actual_shares, pos['direction'])
         
@@ -803,7 +976,7 @@ class PositionMonitor:
             exit_slippage_total=pos['exit_slippage_total'] + slippage
         )
         
-        print(f"   Sold {actual_shares} @ ${fill_price:.2f} | PnL: ${pnl:.2f}")
+        print(f"   Closed {actual_shares} @${fill_price:.2f} | PnL: ${pnl:.2f}")
         print(f"   Stop moved to breakeven (${entry_price:.2f}) | {new_shares} shares remaining")
         
         self.log.log({
@@ -827,9 +1000,8 @@ class PositionMonitor:
         print(f"\n🏆 {symbol} HIT R2 TARGET!")
         
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
-        if fill_price is None:
-            fill_price = current_price
-            actual_shares = shares_to_sell
+        if not actual_shares:
+            return self._exit_failed(symbol)
         
         slippage = self._calculate_exit_slippage(fill_price, pos['target_r2'], actual_shares, pos['direction'])
         
@@ -842,7 +1014,7 @@ class PositionMonitor:
         total_pnl = pos['realized_pnl'] + pnl
         total_slippage = pos['entry_slippage'] + pos['exit_slippage_total'] + slippage
         
-        print(f"   Sold {actual_shares} @ ${fill_price:.2f}")
+        print(f"   Closed {actual_shares} @${fill_price:.2f}")
         print(f"   💰 Total PnL: ${total_pnl:.2f} | Slippage: ${total_slippage:.2f}")
         
         self.log.log({
@@ -856,8 +1028,8 @@ class PositionMonitor:
             'total_pnl': total_pnl,
             'total_slippage': total_slippage
         })
-        
-        self.state.remove_position(symbol)
+
+        self._finish_exit(symbol, pos, actual_shares, pnl)
         return 'SELL_R2'
     
     def _exit_stop(self, symbol: str, pos: Dict, current_price: float) -> str:
@@ -867,9 +1039,8 @@ class PositionMonitor:
         print(f"\n🛑 {symbol} HIT {stop_type}!")
         
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
-        if fill_price is None:
-            fill_price = current_price
-            actual_shares = shares_to_sell
+        if not actual_shares:
+            return self._exit_failed(symbol)
         
         slippage = self._calculate_exit_slippage(fill_price, pos['current_stop'], actual_shares, pos['direction'])
         
@@ -881,7 +1052,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Sold {actual_shares} @ ${fill_price:.2f} | PnL: ${pnl:.2f}")
+        print(f"   Closed {actual_shares} @${fill_price:.2f} | PnL: ${pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_STOP',
@@ -894,8 +1065,8 @@ class PositionMonitor:
             'total_pnl': total_pnl,
             'was_breakeven': pos['hit_r1']
         })
-        
-        self.state.remove_position(symbol)
+
+        self._finish_exit(symbol, pos, actual_shares, pnl)
         return 'SELL_STOP'
     
     def _exit_trail(self, symbol: str, pos: Dict, current_price: float, trail_stop: float) -> str:
@@ -904,9 +1075,8 @@ class PositionMonitor:
         print(f"\n📉 {symbol} HIT TRAILING STOP!")
         
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
-        if fill_price is None:
-            fill_price = current_price
-            actual_shares = shares_to_sell
+        if not actual_shares:
+            return self._exit_failed(symbol)
         
         slippage = self._calculate_exit_slippage(fill_price, trail_stop, actual_shares, pos['direction'])
         
@@ -918,7 +1088,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Sold {actual_shares} @ ${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
+        print(f"   Closed {actual_shares} @${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_TRAIL',
@@ -930,25 +1100,23 @@ class PositionMonitor:
             'pnl': pnl,
             'total_pnl': total_pnl
         })
-        
-        self.state.remove_position(symbol)
+
+        self._finish_exit(symbol, pos, actual_shares, pnl)
         return 'SELL_TRAIL'
     
-    def exit_eod(self, symbol: str):
+    def exit_eod(self, symbol: str) -> Optional[str]:
         """Exit at end of day"""
         pos = self.state.get_position(symbol)
         if not pos:
-            return
-        
-        current_price = self.alpaca.get_current_price(symbol)
+            return None
+
         shares_to_sell = pos['shares_remaining']
         
         print(f"\n⏰ EOD EXIT: {symbol}")
         
         fill_price, actual_shares = self.alpaca.close(symbol, shares_to_sell, pos['direction'])
-        if fill_price is None:
-            fill_price = current_price or pos['entry_price']
-            actual_shares = shares_to_sell
+        if not actual_shares:
+            return self._exit_failed(symbol)
         
         entry_price = pos['entry_price']
         if pos['direction'] == "LONG":
@@ -958,7 +1126,7 @@ class PositionMonitor:
         
         total_pnl = pos['realized_pnl'] + pnl
         
-        print(f"   Sold {actual_shares} @ ${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
+        print(f"   Closed {actual_shares} @${fill_price:.2f} | Total PnL: ${total_pnl:.2f}")
         
         self.log.log({
             'type': 'SELL_EOD',
@@ -968,9 +1136,26 @@ class PositionMonitor:
             'pnl': pnl,
             'total_pnl': total_pnl
         })
-        
-        self.state.remove_position(symbol)
-    
+
+        self._finish_exit(symbol, pos, actual_shares, pnl)
+        return 'SELL_EOD'
+
+    def _exit_failed(self, symbol: str) -> str:
+        """Nothing filled: keep the position (Alpaca still holds it) and try again next check."""
+        print(f"   ⚠️  {symbol}: exit did not go through. Keeping the position; will try again.")
+        return 'EXIT_FAILED'
+
+    def _finish_exit(self, symbol: str, pos: Dict, filled: int, pnl: float):
+        """Remove a fully closed position, or keep the shares that didn't fill."""
+        remaining = pos['shares_remaining'] - filled
+        if remaining > 0:
+            print(f"   ⚠️  Only {filled} of {pos['shares_remaining']} shares closed. "
+                  f"Keeping {remaining}; will try again.")
+            self.state.update_position(symbol, shares_remaining=remaining,
+                                       realized_pnl=pos['realized_pnl'] + pnl)
+        else:
+            self.state.remove_position(symbol)
+
     def check_all_positions(self, verbose: bool = True):
         """Check all positions once"""
         self.check_count += 1
@@ -984,6 +1169,21 @@ class PositionMonitor:
         
         for symbol in list(positions.keys()):
             self.check_position(symbol, verbose=verbose)
+
+
+def close_all_tracked(monitor: PositionMonitor, sync: BrokerSync, tries: int = 3) -> bool:
+    """Close every position the bot opened, confirm with Alpaca, and retry a few times."""
+    for attempt in range(tries):
+        for symbol in list(monitor.state.get_all_positions().keys()):
+            monitor.exit_eod(symbol)
+        sync.sync()
+        if not monitor.state.get_all_positions():
+            return True
+        if attempt < tries - 1:
+            time.sleep(MONITOR_INTERVAL)
+    still_open = ', '.join(monitor.state.get_all_positions().keys())
+    print(f"\n🚨 STILL OPEN after {tries} tries: {still_open}. Close them in Alpaca now!")
+    return False
 
 
 # ==============================================================================
@@ -1001,7 +1201,8 @@ class TradingEngine:
         self.alpaca = AlpacaClient()
         self.state = PositionStateManager()
         self.log = PaperTradeLog()
-        self.scanner = EntryScanner(self.alpaca, self.state, self.log)
+        self.sync = BrokerSync(self.alpaca, self.state, self.log)
+        self.scanner = EntryScanner(self.alpaca, self.state, self.log, self.sync)
         self.monitor = PositionMonitor(self.alpaca, self.state, self.log)
         self.running = False
         self.last_scan_time = None
@@ -1016,7 +1217,7 @@ class TradingEngine:
             return False
         
         # Don't scan if at max positions
-        if self.state.position_count() >= MAX_POSITIONS:
+        if self.sync.slots_used() >= MAX_POSITIONS:
             return False
         
         # Scan every SCAN_INTERVAL seconds
@@ -1038,10 +1239,17 @@ class TradingEngine:
         print(f"⏹️  Press Ctrl+C to stop")
         print("="*70)
         
+        # Start from what Alpaca actually holds, not from memory
+        print("\n🔄 Checking positions with Alpaca...")
+        if not self.sync.sync():
+            print("❌ Can't confirm positions with Alpaca. Stopping; try again in a minute.")
+            return
+        print(f"   Bot positions: {self.state.position_count()} | Not opened by bot: {len(self.sync.unknown)}")
+
         # Initialize
         self.scanner.load_watchlist()
         self.scanner.initialize_strategy()
-        
+
         self.running = True
         iteration = 0
         
@@ -1059,22 +1267,22 @@ class TradingEngine:
                 # === CHECK EOD EXIT ===
                 if current_time >= EOD_EXIT_TIME:
                     print("\n⏰ EOD EXIT TIME")
-                    positions = self.state.get_all_positions()
-                    for symbol in list(positions.keys()):
-                        self.monitor.exit_eod(symbol)
-                    print("\n✅ All positions closed. Shutting down.")
+                    if close_all_tracked(self.monitor, self.sync):
+                        print("\n✅ All positions closed (confirmed with Alpaca). Shutting down.")
                     break
-                
+
                 # === CHECK DAILY LOSS LIMIT ===
                 daily_pnl = self.log.get_daily_pnl()
                 if daily_pnl <= -MAX_DAILY_LOSS:
                     print(f"\n🛑 DAILY LOSS LIMIT HIT (${daily_pnl:.2f})")
-                    positions = self.state.get_all_positions()
-                    for symbol in list(positions.keys()):
-                        self.monitor.exit_eod(symbol)
+                    close_all_tracked(self.monitor, self.sync)
                     print("Shutting down for the day.")
                     break
-                
+
+                # === RE-CHECK WITH ALPACA (every minute) ===
+                if iteration % SYNC_CHECK_INTERVAL == 0:
+                    self.sync.sync()
+
                 # === SCAN FOR NEW ENTRIES ===
                 if self.should_scan():
                     self.scanner.scan_once()
@@ -1086,7 +1294,7 @@ class TradingEngine:
                 
                 # === SHOW STATUS (every minute) ===
                 if iteration % 6 == 0:  # Every 60 seconds
-                    positions = self.state.position_count()
+                    positions = self.sync.slots_used()
                     daily_pnl = self.log.get_daily_pnl()
                     slip = self.log.get_daily_slippage()
                     
@@ -1139,7 +1347,9 @@ class TradingEngine:
         positions = self.state.get_all_positions()
         if positions:
             print(f"\n⚠️  Open positions: {list(positions.keys())}")
-        
+        if self.sync.unknown:
+            print(f"⚠️  Alpaca also holds (not opened by the bot): {sorted(self.sync.unknown)}")
+
         print("="*70)
 
 
@@ -1173,35 +1383,44 @@ def cmd_monitor():
     alpaca = AlpacaClient()
     state = PositionStateManager()
     log = PaperTradeLog()
-    
+    sync = BrokerSync(alpaca, state, log)
+
+    if not sync.sync():
+        print("\n❌ Can't confirm positions with Alpaca. Try again in a minute.")
+        return
+
     positions = state.get_all_positions()
     if not positions:
         print("\n⚠️  No positions to monitor!")
         return
-    
+
     print(f"\n📊 Monitoring {len(positions)} position(s)")
     print("Press Ctrl+C to stop\n")
-    
+
     monitor = PositionMonitor(alpaca, state, log)
-    
+    loops = 0
+
     try:
         while True:
             now = datetime.now()
             current_time = now.strftime("%H:%M")
-            
+            loops += 1
+
             if current_time >= EOD_EXIT_TIME:
                 print("\n⏰ EOD - Closing all")
-                for symbol in list(state.get_all_positions().keys()):
-                    monitor.exit_eod(symbol)
+                close_all_tracked(monitor, sync)
                 break
-            
+
+            if loops % SYNC_CHECK_INTERVAL == 0:
+                sync.sync()
+
             if not state.get_all_positions():
                 print("\n✅ All positions closed.")
                 break
-            
+
             print(f"\n[{now.strftime('%H:%M:%S')}] Checking positions...")
             monitor.check_all_positions(verbose=True)
-            
+
             time.sleep(MONITOR_INTERVAL)
             
     except KeyboardInterrupt:
@@ -1239,7 +1458,19 @@ def cmd_status():
                   f"Stop: ${pos['current_stop']:.2f} {r1}")
     else:
         print("   (none)")
-    
+
+    # What Alpaca actually holds (the truth)
+    if not alpaca.sim_mode:
+        held = alpaca.get_positions()
+        print(f"\n🏦 Alpaca holds:")
+        if held is None:
+            print("   (couldn't reach Alpaca)")
+        elif not held:
+            print("   (nothing)")
+        for sym, h in (held or {}).items():
+            note = "" if sym in tracked else "   ⚠️ not opened by the bot today"
+            print(f"   {sym}: {h['qty']} shares {h['side'].upper()} @ ${h['entry']:.2f}{note}")
+
     # Daily stats
     daily_pnl = log.get_daily_pnl()
     slip = log.get_daily_slippage()
@@ -1264,10 +1495,22 @@ def cmd_close():
     tracked = state.get_all_positions()
     for symbol in list(tracked.keys()):
         monitor.exit_eod(symbol)
-    
+
     alpaca.close_all()
-    
-    print("\n✅ Done!")
+
+    # Confirm with Alpaca
+    if alpaca.sim_mode:
+        print("\n✅ Done! (simulation)")
+        return
+    time.sleep(2)
+    held = alpaca.get_positions()
+    if held is None:
+        print("\n⚠️  Couldn't confirm with Alpaca. Check the Alpaca website.")
+    elif held:
+        print(f"\n🚨 Alpaca still holds: {', '.join(held)}. Check the Alpaca website.")
+    else:
+        BrokerSync(alpaca, state, log).sync()   # clear anything the bot still remembers
+        print("\n✅ Done! Alpaca confirms no open positions.")
 
 
 def cmd_log():
@@ -1312,6 +1555,13 @@ def cmd_log():
         elif typ == 'SELL_EOD':
             print(f"[{t}] ⏰ {sym} EOD: sold {entry.get('shares')} @ ${entry.get('fill_price', 0):.2f} "
                   f"| Total: ${entry.get('total_pnl', 0):.2f}")
+
+        elif typ == 'SYNC_REMOVED':
+            print(f"[{t}] 🔄 {sym} removed from bot records: {entry.get('reason', '')}")
+
+        elif typ == 'SYNC_QTY':
+            print(f"[{t}] 🔄 {sym} share count fixed: bot had {entry.get('bot_shares')}, "
+                  f"Alpaca had {entry.get('alpaca_shares')}")
     
     # Summary
     print("\n" + "-"*70)
@@ -1419,7 +1669,7 @@ def cmd_help():
 ║    SCAN_INTERVAL = 300        # Scan every 5 minutes                 ║
 ║    MONITOR_INTERVAL = 10      # Check positions every 10 sec         ║
 ║    SCAN_END_TIME = "11:00"    # Stop looking for new entries         ║
-║    ALLOW_SHORTS = False       # Longs only (True = also short)       ║
+║    ALLOW_SHORTS = True        # Long AND short (False = longs only)  ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """)
