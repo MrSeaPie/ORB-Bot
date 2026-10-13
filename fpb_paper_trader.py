@@ -90,6 +90,7 @@ DEFAULT_CAPITAL = 10000.0       # Fallback if can't get account equity
 
 # === TIMING SETTINGS ===
 SCAN_INTERVAL = 300             # Scan for NEW entries every 5 minutes (300 sec)
+MAX_SIGNAL_AGE_MINUTES = 10     # Only act on a signal candle from the last 10 minutes (2 bars)
 MONITOR_INTERVAL = 10           # Check EXISTING positions every 10 seconds
 EMA_CHECK_INTERVAL = 6          # Update trailing stop every 6th monitor cycle (60 sec)
 SYNC_CHECK_INTERVAL = 6         # Re-check positions with Alpaca every 6th monitor cycle (60 sec)
@@ -315,9 +316,9 @@ class PaperTradeLog:
             }
     
     def get_symbols_traded_today(self) -> set:
-        """Get symbols we've already traded today (avoid re-entry)"""
+        """Symbols we already traded or tried to trade today (one attempt per stock per day)"""
         with self.lock:
-            return {t.get('symbol') for t in self.trades if t.get('type') == 'ENTRY'}
+            return {t.get('symbol') for t in self.trades if t.get('type') in ('ENTRY', 'ENTRY_FAILED')}
 
 
 # ==============================================================================
@@ -707,6 +708,7 @@ class EntryScanner:
         self.symbols = []
         self.last_scan_time = None
         self.skipped_shorts = set()
+        self.skipped_stale = set()
 
     def load_watchlist(self):
         """Load watchlist once"""
@@ -829,7 +831,19 @@ class EntryScanner:
                 signal = self.strategy.find_pullback_entry(today_df, direction, spike_high, spike_low)
                 if signal is None:
                     continue
-                
+
+                # Only act on a fresh signal: the first pullback may have happened long ago
+                bar_time = pd.Timestamp(signal['entry_time'])
+                if bar_time.tzinfo is not None:
+                    bar_time = bar_time.tz_convert(ET).tz_localize(None)
+                signal_age = now - bar_time.to_pydatetime()
+                if signal_age > timedelta(minutes=MAX_SIGNAL_AGE_MINUTES):
+                    if symbol not in self.skipped_stale:
+                        print(f"   ⏭️  {symbol}: {direction} signal from {bar_time.strftime('%H:%M')} is "
+                              f"{int(signal_age.total_seconds() // 60)} min old. Too late to enter.")
+                        self.skipped_stale.add(symbol)
+                    continue
+
                 # === SIGNAL FOUND! ===
                 gap_pct = ((today_df.iloc[0]['open'] - prev_close) / prev_close) * 100
                 
@@ -848,8 +862,15 @@ class EntryScanner:
                     print(f"   ⏭️  {symbol}: skipped, Alpaca already has a position or order for it")
                     continue
 
-                # Make sure the trade fits the account (size cap + real buying power)
+                # The setup is dead if the price is already past the stop
                 price_now = self.alpaca.get_current_price(symbol) or signal['entry_price']
+                if (direction == "LONG" and price_now <= signal['stop_price']) or \
+                   (direction == "SHORT" and price_now >= signal['stop_price']):
+                    print(f"   ⏭️  {symbol}: price ${price_now:.2f} is already past the stop "
+                          f"${signal['stop_price']:.2f}. Skipped.")
+                    continue
+
+                # Make sure the trade fits the account (size cap + real buying power)
                 shares, note = self.size_position(signal['shares'], price_now)
                 if note:
                     print(f"   📏 {note}")
@@ -897,7 +918,17 @@ class EntryScanner:
                         'target_r1': signal['target_r1'],
                         'target_r2': signal['target_r2']
                     })
-                    
+                else:
+                    # One attempt per stock per day: don't hammer a rejected order every scan
+                    print(f"   ⏭️  {symbol}: entry didn't fill. Not retrying {symbol} today.")
+                    self.log.log({
+                        'type': 'ENTRY_FAILED',
+                        'symbol': symbol,
+                        'direction': direction,
+                        'shares': shares,
+                        'signal_price': signal['entry_price'],
+                    })
+
             except Exception as e:
                 # Skip symbols that error, but say why
                 print(f"   ⚠️  {symbol}: skipped after an error ({e})")
@@ -1613,6 +1644,9 @@ def cmd_log():
         elif typ == 'SELL_EOD':
             print(f"[{t}] ⏰ {sym} EOD: sold {entry.get('shares')} @ ${entry.get('fill_price', 0):.2f} "
                   f"| Total: ${entry.get('total_pnl', 0):.2f}")
+
+        elif typ == 'ENTRY_FAILED':
+            print(f"[{t}] ⛔ {sym} entry didn't fill ({entry.get('shares')} shares wanted). No retry today.")
 
         elif typ == 'SYNC_REMOVED':
             print(f"[{t}] 🔄 {sym} removed from bot records: {entry.get('reason', '')}")
