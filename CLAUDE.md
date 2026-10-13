@@ -68,6 +68,13 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
   PAPER testing. Strategy is still unvalidated (every backtest sample < 75 trades).
 - End-to-end run of `run_bot.bat` on 2026-10-12 (after the close) worked: scanner → 20-stock
   watchlist → bot connected, synced, saw the market closed, stopped. No orders.
+- **TESTING PHASE STARTED 2026-10-12.** Task Scheduler job "ORB-Bot daily" registered with
+  Hassan's OK (weekdays 9:20 AM → `run_bot.bat`); test-fired OK (result 0). First live paper
+  session: Tue 2026-10-13. Running with defaults: 1% risk, hold to 3:55, MAX_POSITION_PCT 50,
+  current universe. The PC sleeps after 1 h idle, so `run` keeps Windows awake while trading.
+- After each session, review: `logs/runs/<date>.log`, `logs/paper_trades/paper_<date>.json`,
+  and (read-only) Alpaca positions/orders. Check every fill had a matching stop order, exits
+  cancelled stops, and the bot and Alpaca ended flat.
 - The live `fpb_strategy.py` has NO low-volume-pullback check (Kunal's rule / "V4").
 - Test suite (fake broker + fake Yahoo data, 69 checks) lives outside the repo; rebuild it if
   needed: the key tricks are a fake TradingClient that enforces Alpaca's held-shares rule
@@ -120,7 +127,7 @@ two-sided with spread ≤ 2%, else latest trade (< 5 min), else Yahoo 1-min bar.
 5. Make the GitHub repo private? (Then PROJECT_HISTORY.md can be uploaded too.)
 6. What tells *him* a day is a "long day" vs a "short day"?
 7. Which stocks belong in `universe.txt` (drop mega-caps? add small/mid-cap gappers)?
-8. OK to register the Task Scheduler job (`setup_schedule.ps1`)?
+8. ~~Register the schedule?~~ Yes, registered 2026-10-12.
 9. `MAX_POSITION_PCT = 50` is a default Claude picked; confirm or change.
 
 ## Decisions Log
@@ -137,9 +144,10 @@ two-sided with spread ≤ 2%, else latest trade (< 5 min), else Yahoo 1-min bar.
   decide the broker (and paid real-time data) before real money.
 
 ## Next Steps
-1. Hassan: answer open questions 7 and 8 (universe, schedule), then paper trade daily.
-2. Watch the first live sessions: after each fill, Alpaca and the bot must agree; stop orders
-   must show in Alpaca's open orders.
+1. Review the first live sessions (from 2026-10-13): after each fill, Alpaca and the bot must
+   agree; stop orders must show in Alpaca's open orders. Fix anything the real broker does
+   differently from the fake one.
+2. Hassan: decide the stock list (open question 7) and the open strategy rules.
 3. Add Alpaca historical data loader; re-run FPB backtest on a large sample (200+ trades),
    with slippage, on the right stocks; compare with/without the low-volume pullback rule.
 4. Split `fpb_paper_trader.py` into shared layers (see Architecture plan) before strategy #2.
