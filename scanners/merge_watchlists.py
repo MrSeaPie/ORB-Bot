@@ -36,6 +36,17 @@ def load_json(filepath: str) -> Optional[Dict]:
         return None
 
 
+def scan_age_days(data: Dict) -> Optional[int]:
+    """How many calendar days old a scan file is (None if it has no scan time)."""
+    try:
+        return (datetime.now().date() - datetime.fromisoformat(data['scan_time']).date()).days
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+MAX_EOD_AGE_DAYS = 4    # Friday's after-close scan is still good on Monday (and after a long weekend)
+
+
 def merge_watchlists(
     premarket_file: str = os.path.join(OUTPUT_DIR, "watchlist_premarket.json"),
     eod_file: str = os.path.join(OUTPUT_DIR, "watchlist_eod.json"),
@@ -62,8 +73,11 @@ def merge_watchlists(
     
     final_stocks = {}  # Use dict for deduplication
     
-    # Load pre-market results
+    # Load pre-market results: only today's scan counts (an old gap is not today's gap)
     premarket_data = load_json(premarket_file)
+    if premarket_data and scan_age_days(premarket_data) != 0:
+        print(f"⚠️  Pre-market scan is from {premarket_data.get('scan_time', '?')[:10]}, not today. Ignoring it.")
+        premarket_data = None
     if premarket_data:
         premarket_stocks = premarket_data.get('stocks', [])
         print(f"📈 Pre-market gappers: {len(premarket_stocks)}")
@@ -78,8 +92,12 @@ def merge_watchlists(
         premarket_stocks = []
         print("📈 Pre-market gappers: 0 (no file)")
     
-    # Load EOD results
+    # Load EOD results: daily-chart patterns from the last few days
     eod_data = load_json(eod_file)
+    age = scan_age_days(eod_data) if eod_data else None
+    if eod_data and (age is None or age > MAX_EOD_AGE_DAYS):
+        print(f"⚠️  End-of-day scan is from {eod_data.get('scan_time', '?')[:10]}, too old. Ignoring it.")
+        eod_data = None
     if eod_data:
         eod_stocks = eod_data.get('stocks', [])
         print(f"📊 EOD setups: {len(eod_stocks)}")
@@ -132,11 +150,11 @@ def merge_watchlists(
         if source == 'BOTH':
             gap = stock.get('gap_pct', 0)
             patterns = stock.get('pattern_names', [])
-            print(f"   {i}. ⭐ {symbol:6} | {source:10} | +{gap:.1f}% | {patterns} | Score: {score}")
+            print(f"   {i}. ⭐ {symbol:6} | {source:10} | {gap:+.1f}% | {patterns} | Score: {score}")
         elif source == 'PREMARKET':
             gap = stock.get('gap_pct', 0)
             catalyst = stock.get('catalyst_type', 'unknown')
-            print(f"   {i}. 📈 {symbol:6} | {source:10} | +{gap:.1f}% | {catalyst} | Score: {score}")
+            print(f"   {i}. 📈 {symbol:6} | {source:10} | {gap:+.1f}% | {catalyst} | Score: {score}")
         else:
             patterns = stock.get('pattern_names', [])
             print(f"   {i}. 📊 {symbol:6} | {source:10} | {patterns} | Score: {score}")

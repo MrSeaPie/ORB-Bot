@@ -40,7 +40,7 @@ import time
 import random
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -106,6 +106,7 @@ MONITOR_INTERVAL = 10           # Check EXISTING positions every 10 seconds
 EMA_CHECK_INTERVAL = 6          # Update trailing stop every 6th monitor cycle (60 sec)
 SYNC_CHECK_INTERVAL = 6         # Re-check positions with Alpaca every 6th monitor cycle (60 sec)
 FILL_WAIT_SECONDS = 10          # How long to wait for Alpaca to confirm an order filled
+MAX_QUOTE_SPREAD_PCT = 2.0      # Ignore bid/ask quotes wider than this (use the last trade instead)
 SCAN_START_TIME = "09:35"       # Start scanning for entries
 SCAN_END_TIME = "11:00"         # Stop scanning for new entries
 EOD_EXIT_TIME = "15:55"         # Close all positions
@@ -136,8 +137,7 @@ sys.path.insert(0, f"{BOT_DIR}/scanners")
 try:
     from fpb_strategy import (
         FirstPullbackBuy, 
-        FPBConfig, 
-        load_watchlist_symbols,
+        FPBConfig,
         download_stock_data
     )
     print("✅ Imported fpb_strategy.py")
@@ -164,7 +164,7 @@ try:
                                          GetOrdersRequest, GetCalendarRequest)
     from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
     from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockLatestQuoteRequest
+    from alpaca.data.requests import StockLatestQuoteRequest, StockLatestTradeRequest
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
@@ -434,31 +434,31 @@ class AlpacaClient:
             return price - slip_amount if direction == "LONG" else price + slip_amount
     
     def get_current_price(self, symbol: str) -> Optional[float]:
-        if self.sim_mode:
+        """
+        Latest price. Alpaca's free data feed sometimes shows a one-sided quote (bid or ask
+        of $0), and averaging that gives a fake price (AAPL showed $0.01). So: use the quote
+        only if both sides are real and close together; otherwise the latest Alpaca trade if
+        it's recent; otherwise Yahoo's last 1-minute bar.
+        """
+        if not self.sim_mode:
             try:
-                ticker = yf.Ticker(symbol)
-                data = ticker.history(period="1d", interval="1m")
-                if len(data) > 0:
-                    return float(data['Close'].iloc[-1])
-            except:
+                quote = self.data_client.get_stock_latest_quote(
+                    StockLatestQuoteRequest(symbol_or_symbols=symbol))[symbol]
+                bid, ask = float(quote.bid_price or 0), float(quote.ask_price or 0)
+                if bid > 0 and ask >= bid and (ask - bid) <= ask * MAX_QUOTE_SPREAD_PCT / 100:
+                    return (bid + ask) / 2
+                trade = self.data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol))[symbol]
+                if trade.price and datetime.now(timezone.utc) - trade.timestamp < timedelta(minutes=5):
+                    return float(trade.price)
+            except Exception:
                 pass
-            return None
-        
         try:
-            request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-            quote = self.data_client.get_stock_latest_quote(request)
-            if symbol in quote:
-                bid = float(quote[symbol].bid_price)
-                ask = float(quote[symbol].ask_price)
-                return (bid + ask) / 2
-        except:
-            try:
-                ticker = yf.Ticker(symbol)
-                data = ticker.history(period="1d", interval="1m")
-                if len(data) > 0:
-                    return float(data['Close'].iloc[-1])
-            except:
-                pass
+            data = yf.Ticker(symbol).history(period="1d", interval="1m")
+            if len(data) > 0:
+                return float(data['Close'].iloc[-1])
+        except Exception:
+            pass
         return None
     
     def get_current_ema9(self, symbol: str) -> Optional[float]:
@@ -859,9 +859,30 @@ class EntryScanner:
         self.skipped_stale = set()
 
     def load_watchlist(self):
-        """Load watchlist once"""
-        self.symbols = load_watchlist_symbols()
-        print(f"📋 Loaded {len(self.symbols)} symbols from watchlist")
+        """
+        Load TODAY's scanner watchlist. A missing or old watchlist means no new trades:
+        the bot never falls back to a made-up list of stocks.
+        """
+        self.symbols = []
+        path = Path(BOT_DIR) / "output" / "watchlist.json"
+        run_scanner = "Run the scanner first: python scanners\\run_daily.py --now"
+        if not path.exists():
+            print(f"❌ No scanner watchlist found. No new trades today. {run_scanner}")
+            return
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"❌ Can't read the watchlist ({e}). No new trades today. {run_scanner}")
+            return
+        updated = str(data.get('last_updated', ''))[:10]
+        if updated != now_et().strftime("%Y-%m-%d"):
+            print(f"❌ The watchlist is from {updated or 'an unknown date'}, not today. "
+                  f"No new trades. {run_scanner}")
+            return
+        self.symbols = [s['symbol'] for s in data.get('stocks', [])]
+        print(f"📋 Today's watchlist: {len(self.symbols)} stocks"
+              + (f" ({', '.join(self.symbols)})" if self.symbols else ". Nothing to trade today."))
         
     def initialize_strategy(self):
         """Initialize FPB strategy"""

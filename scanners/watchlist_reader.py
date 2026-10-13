@@ -200,14 +200,14 @@ def print_watchlist_summary(filepath: str = WATCHLIST_FILE):
         for s in both[:5]:
             gap = s.get('gap_pct', 0)
             patterns = s.get('pattern_names', [])
-            print(f"   {s['symbol']:6} | +{gap:.1f}% | {patterns}")
+            print(f"   {s['symbol']:6} | {gap:+.1f}% | {patterns}")
     
     if gap_only:
         print(f"\n📈 GAP STOCKS: {len(gap_only)}")
         for s in gap_only[:5]:
             gap = s.get('gap_pct', 0)
             catalyst = s.get('catalyst_type', 'news')
-            print(f"   {s['symbol']:6} | +{gap:.1f}% | {catalyst}")
+            print(f"   {s['symbol']:6} | {gap:+.1f}% | {catalyst}")
     
     if pattern_only:
         print(f"\n📊 PATTERN STOCKS: {len(pattern_only)}")

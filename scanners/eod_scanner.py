@@ -463,8 +463,8 @@ def run_eod_scan(save: bool = True) -> List[Dict]:
             print(f"   {i}. {stock['symbol']:6} | ${stock['price']:7.2f} | "
                   f"RSI: {stock['rsi']:4.1f} | {trend} | {patterns}")
     
-    # Save to file
-    if save and results:
+    # Save to file, even when nothing was found: an old file must never stand in for today
+    if save:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         output = {
             'scan_time': datetime.now().isoformat(),

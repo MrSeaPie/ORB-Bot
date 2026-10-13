@@ -1,13 +1,13 @@
 """
 premarket_scanner.py - Pre-Market Gap Scanner
 ==============================================
-Finds gap-up stocks with news/catalyst before market open.
+Finds stocks gapping up OR down (for longs and shorts) with news/catalyst before market open.
 
 Run: 6:00 AM - 9:25 AM Eastern
 Output: watchlist_premarket.json
 
 WHAT IT DOES:
-1. Scans stocks for 3%+ gaps from previous close
+1. Scans stocks for 3%+ gaps (up or down) from the previous close
 2. Checks for news/catalyst
 3. Filters by volume, price, float
 4. Ranks by quality score
@@ -18,13 +18,18 @@ import os
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 import warnings
 warnings.filterwarnings('ignore')
+
+# Gaps are measured against New York trading days
+ET = ZoneInfo("America/New_York")
 
 # Try to import Alpaca (optional - falls back to Yahoo)
 try:
     from alpaca.data import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+    from alpaca.data.enums import DataFeed
+    from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
     from alpaca.data.timeframe import TimeFrame
     ALPACA_AVAILABLE = True
 except ImportError:
@@ -54,6 +59,12 @@ except ImportError:
 SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
 UNIVERSE_FILE = os.path.join(SCANNER_DIR, 'universe.txt')
 OUTPUT_DIR = os.path.join(os.path.dirname(SCANNER_DIR), 'output')
+
+
+def _et_dates(index):
+    """New York calendar date of each timestamp in a price table's index."""
+    idx = pd.DatetimeIndex(index)
+    return (idx.tz_convert(ET) if idx.tz is not None else idx).date
 
 
 # ==============================================================================
@@ -113,75 +124,84 @@ class PreMarketScanner:
         return DEFAULT_UNIVERSE
     
     def get_stock_data_yahoo(self, symbol: str) -> Optional[Dict]:
-        """Get stock data using Yahoo Finance"""
+        """
+        Get stock data using Yahoo Finance.
+        Gap = latest price TODAY (pre-market included) vs the last COMPLETED day's close.
+        (Before the open Yahoo has no daily bar for today yet, so "last daily bar" would be
+        yesterday and the gap would be yesterday's.)
+        """
         try:
             ticker = yf.Ticker(symbol)
-            
-            # Get recent daily data
-            hist = ticker.history(period="5d")
-            if hist is None or len(hist) < 2:
+            today = datetime.now(ET).date()
+
+            # Completed trading days only
+            daily = ticker.history(period="1mo", interval="1d")
+            if daily is None or len(daily) == 0:
                 return None
-            
-            # Previous close
-            prev_close = float(hist['Close'].iloc[-2])
-            
-            # Today's data (or latest)
-            today_open = float(hist['Open'].iloc[-1])
-            today_volume = float(hist['Volume'].iloc[-1])
-            
-            # Average volume (20-day if available)
-            avg_volume = float(hist['Volume'].mean())
-            
-            # Calculate gap
-            gap_pct = ((today_open - prev_close) / prev_close) * 100
-            
-            # Relative volume
-            rel_vol = today_volume / avg_volume if avg_volume > 0 else 0
-            
+            past = daily[_et_dates(daily.index) < today]
+            if len(past) < 2:
+                return None
+            prev_close = float(past['Close'].iloc[-1])
+            avg_volume = float(past['Volume'].tail(20).mean())
+
+            # Today's trading so far, pre-market included
+            intraday = ticker.history(period="2d", interval="1m", prepost=True)
+            if intraday is None or len(intraday) == 0:
+                return None
+            today_bars = intraday[_et_dates(intraday.index) == today]
+            if len(today_bars) == 0:
+                return None     # no trades yet today
+            current_price = float(today_bars['Close'].iloc[-1])
+            today_volume = float(today_bars['Volume'].sum())
+
+            gap_pct = ((current_price - prev_close) / prev_close) * 100
+            rel_vol = today_volume / avg_volume if avg_volume > 0 else 0    # today so far vs a full day
+
             return {
                 'symbol': symbol,
                 'prev_close': round(prev_close, 2),
-                'current_price': round(today_open, 2),
+                'current_price': round(current_price, 2),
                 'gap_pct': round(gap_pct, 2),
                 'volume': int(today_volume),
                 'avg_volume': int(avg_volume),
                 'relative_volume': round(rel_vol, 2)
             }
-            
+
         except Exception as e:
             return None
     
     def get_stock_data_alpaca(self, symbol: str) -> Optional[Dict]:
         """Get stock data using Alpaca API"""
         try:
-            # Get daily bars for previous close
-            end = datetime.now()
-            start = end - timedelta(days=7)
-            
+            # Get daily bars for previous close (IEX feed: allowed on the free plan)
+            end = datetime.now(ET)
+            start = end - timedelta(days=10)
+
             request = StockBarsRequest(
                 symbol_or_symbols=symbol,
                 timeframe=TimeFrame.Day,
                 start=start,
-                end=end
+                end=end,
+                feed=DataFeed.IEX
             )
             bars = self.alpaca_client.get_stock_bars(request)
-            
-            if symbol not in bars or len(bars[symbol]) < 2:
+
+            # Completed trading days only (today's bar may be missing or still forming)
+            today = end.date()
+            completed = [b for b in bars.data.get(symbol, []) if b.timestamp.astimezone(ET).date() < today]
+            if len(completed) < 2:
                 return None
-            
-            prev_close = float(bars[symbol][-2].close)
-            avg_volume = sum(b.volume for b in bars[symbol]) / len(bars[symbol])
-            
-            # Get latest quote for current price
-            quote_request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-            quote = self.alpaca_client.get_stock_latest_quote(quote_request)
-            
-            if symbol not in quote:
-                return None
-            
-            bid = float(quote[symbol].bid_price)
-            ask = float(quote[symbol].ask_price)
-            current_price = (bid + ask) / 2
+
+            prev_close = float(completed[-1].close)
+            avg_volume = sum(b.volume for b in completed) / len(completed)
+
+            # Latest TRADE for the current price (quotes on the free feed can be one-sided,
+            # e.g. ask = $0, which made the old bid/ask average useless)
+            trade_request = StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
+            trade = self.alpaca_client.get_stock_latest_trade(trade_request).get(symbol)
+            if trade is None or not trade.price or trade.timestamp.astimezone(ET).date() != today:
+                return None     # no trades yet today
+            current_price = float(trade.price)
             
             # Calculate gap
             gap_pct = ((current_price - prev_close) / prev_close) * 100
@@ -356,8 +376,8 @@ class PreMarketScanner:
                 
                 # === APPLY FILTERS ===
                 
-                # Filter 1: Gap percentage
-                if data['gap_pct'] < self.min_gap_pct:
+                # Filter 1: Gap percentage, up (long setups) or down (short setups)
+                if abs(data['gap_pct']) < self.min_gap_pct:
                     continue
                 
                 # Filter 2: Price range
@@ -384,7 +404,7 @@ class PreMarketScanner:
                 
                 # Add to results
                 results.append(data)
-                print(f"   ✅ {symbol}: +{data['gap_pct']:.1f}% @ ${data['current_price']:.2f} (Score: {data['score']})")
+                print(f"   ✅ {symbol}: {data['gap_pct']:+.1f}% @ ${data['current_price']:.2f} (Score: {data['score']})")
                 
             except Exception as e:
                 continue
@@ -424,11 +444,11 @@ def run_premarket_scan(require_news: bool = False, save: bool = True) -> List[Di
         print(f"\n📈 TOP GAPPERS:")
         for i, stock in enumerate(results[:10], 1):
             catalyst = stock.get('catalyst_type', '?')
-            print(f"   {i}. {stock['symbol']:6} | +{stock['gap_pct']:5.1f}% | "
+            print(f"   {i}. {stock['symbol']:6} | {stock['gap_pct']:+6.1f}% | "
                   f"${stock['current_price']:7.2f} | Score: {stock['score']} | {catalyst}")
-    
-    # Save to file
-    if save and results:
+
+    # Save to file, even when nothing was found: an old file must never stand in for today
+    if save:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         output = {
             'scan_time': datetime.now().isoformat(),
@@ -464,10 +484,10 @@ if __name__ == "__main__":
     gappers = run_premarket_scan(require_news=False)
     
     if gappers:
-        print(f"\n✅ Found {len(gappers)} gap-up stocks!")
+        print(f"\n✅ Found {len(gappers)} gapping stocks!")
         print("\n📋 Top 5 for today:")
         for stock in gappers[:5]:
-            print(f"   • {stock['symbol']}: +{stock['gap_pct']:.1f}% (Score: {stock['score']})")
+            print(f"   • {stock['symbol']}: {stock['gap_pct']:+.1f}% (Score: {stock['score']})")
     else:
         print("\n⚠️  No gappers found matching criteria")
     
