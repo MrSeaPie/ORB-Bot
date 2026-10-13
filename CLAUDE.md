@@ -80,6 +80,16 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
   needed: the key tricks are a fake TradingClient that enforces Alpaca's held-shares rule
   (can't close shares a stop order holds) and patched `download_stock_data`/`now_et`.
 
+## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
+- 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and
+  ARM -$22.38 (stopped out < 1 min after entry), RIOT -$70.38 (stop), SMCI +$36.03 (R1, then
+  trailed stop). Net -$72.03. PLUMBING PASSED: bot P&L = Alpaca equity change to the cent;
+  every fill got its stop order within 3 s; R1 → breakeven → 5 trailing moves all done as
+  cancel + new stop at Alpaca, no strays; ended flat with no open orders; zero warnings.
+  Notes: all trades hit the 50% size cap (real risk $14–$58, not $65); stops were tight
+  (0.45–0.55% on DELL/ARM) and stop fills slipped $0.35–$0.48; the status line says "Scan
+  window closed" before 9:35 (cosmetic, should say "starts 9:35").
+
 ## Paper-trading bugs: ALL FIXED 2026-10-12 (each its own commit, tested)
 1. Short exits made shorts bigger → exits use Alpaca close-position (`AlpacaClient.close()`).
 2. "Amnesia" → `BrokerSync`: Alpaca is the truth (startup, every scan/order, every 60 s, end of
