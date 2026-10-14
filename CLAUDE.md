@@ -137,6 +137,21 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   - Output: `logs/fpb_backtest_alpaca/dev_2024-07_2025-06_*`. Tests: `tests/test_fpb_backtest.py` (9 checks).
   - Conclusion: as coded, FPB has no edge either. The live paper bot is expected to lose about
     0.3–0.45R a trade. It's paper money only; useful now mainly to measure real fills and slippage.
+- **Kunal's big-picture filters, tested on the saved development-year trades (2026-10-14).** Four
+  checks were decided before looking, all from the day before:
+  - market = QQQ vs its 50-day average, long above / short below
+  - the stock's own 9/20/50-day trend
+  - daily swing breakout beyond the 20-day range
+  - all three together
+
+  Results:
+  - ORB: trading with the market is the only real effect: +0.05R gross / −0.18R net, against
+    −0.19R / −0.44R against the market. Still negative after slippage. Trend and breakout don't
+    help; all three together are worse (−0.35R net).
+  - FPB: no check helps; all three together are the worst (−0.64R net).
+  - Main obstacle: costs. Intraday stops ~1.5% of the price → slippage 0.25–0.45R a trade. Next idea
+    proposed to Hassan: swing breakouts on the daily chart (held days/weeks, so costs are small
+    relative to the move), with the market filter, using the daily data already cached.
 - ORB is PARKED. The holdout was not run (nothing to confirm). Reusable from this work: the Alpaca
   history loader (years of data, parallel, cached), the stock finder and the backtest frame. They are
   the right tools to test FPB on a big sample (main Next Step 3).
