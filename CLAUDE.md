@@ -152,6 +152,27 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   - Main obstacle: costs. Intraday stops ~1.5% of the price → slippage 0.25–0.45R a trade. Next idea
     proposed to Hassan: swing breakouts on the daily chart (held days/weeks, so costs are small
     relative to the move), with the market filter, using the daily data already cached.
+- **Kunal's exact trend rule (from the Bootcamp 74/77/78 swing transcripts), same saved trades
+  (2026-10-14).** Bone zone = daily 9 EMA above / below the 20-day average the day before, plus a
+  9 EMA slope match and the QQQ 50-day market check. ORB: bone zone with the trade +0.02R gross /
+  −0.21R net; full check −0.26R net. FPB: no help; full check −0.53R net (shorts −0.77R). Same
+  answer: the daily trend alone doesn't rescue either intraday strategy. Kunal's real filter is a
+  NAMED daily pattern (flag, flat top, base breakout, bear flag), which needs a daily pattern
+  detector, i.e. the swing-strategy work.
+- **Swing setups as the day-trade scanner (2026-10-14, decided before looking).** A trade is kept only if the
+  stock's daily chart already had a named setup ready in the same direction that morning (flag, flat top,
+  bear flag or flat bottom, built from candles up to the day before; scratch script `swing_as_scanner.py`).
+  - ORB: +0.06R gross / −0.19R net. Adding bone zone + market: 1,038 trades, 38% win, +0.13R gross /
+    −0.10R net, 4/12 months up.
+  - FPB: with bone zone + market: 561 trades, 44% win, +0.13R gross / −0.25R net.
+  - First filter that moves both strategies above zero before costs. It is still negative after costs
+    (intraday slippage 0.25–0.4R a trade).
+- **Experiment, last try for a day-trading edge (agreed 2026-10-14):** `DAILY_SCANNER_EXPERIMENT.md`, rules and
+  pass mark fixed before running; `run_daily_scanner_experiment.py`.
+  - Same lead trades, but stop = 1 daily ATR and out at 3:55 PM.
+  - Version A FAILS: ORB +0.03R net (5/12 months; one month carries it), FPB −0.05R net.
+  - Version B (only stocks with a news headline before the open, Alpaca news feed) queued after the 2026-10-14 downloads.
+  - If B also fails, stop hunting for a day-trading edge.
 - ORB is PARKED. The holdout was not run (nothing to confirm). Reusable from this work: the Alpaca
   history loader (years of data, parallel, cached), the stock finder and the backtest frame. They are
   the right tools to test FPB on a big sample (main Next Step 3).
@@ -159,6 +180,26 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   shelf-low stop, trade only with QQQ's 50-day trend), test it on the development year only, and run
   the holdout only if it shows a clear edge after slippage.
   Open questions: #7 go-to stocks, #9 where chart CRK came from.
+
+## Swing workstream (Kunal's daily-chart setups; same folder `ORB-Bot-orb`, branch `orb-rules`, 2026-10-14)
+Started because both intraday strategies lose mainly to costs. Swing trades are held for days, so costs are small.
+- `SWING_RULES.md`: rules from Bootcamp swing classes 74/76/77/78 (Hassan's Desktop `whisper\Release\`) and
+  20 setup-vault charts (`private/charts/swing_kunal_examples/`). Draft 2; defaults not yet confirmed by Hassan.
+  There is no written rule book (no PDF).
+- `swing_strategy.py`: four shapes on daily candles (bull flag, flat top, bear flag, flat bottom) + Kunal's
+  five questions as yes/no columns + the trade (stop under the 9 EMA, half at 3R, trail the rest).
+  Options: `entry_mode` line/close, `trail_mode` intraday/close.
+- `run_swing_backtest.py`: every liquid stock, every day, from the cached daily candles; report + realistic
+  5-position account vs holding QQQ. `--fetch` downloads missing months (after 4:05 PM only).
+- `tests/test_swing_strategy.py`: 25 offline checks.
+- Recognition: 7 of Kunal's 11 breakout charts found at his day and line (Yahoo prices).
+- **Development year 2024-07 → 2025-06: NO EDGE.**
+  - Original rules: 6,664 trades, −0.03R gross / −0.15R net; 5-position account −33% vs QQQ +14.5%.
+  - Best variant, buy at the close on 2× volume: 253 trades, +0.01R net; account +5.7% (still far behind QQQ).
+  - Costs are only 0.04–0.12R a trade here: the setups themselves don't pay.
+- Queued (2026-10-14): download 2020-01→2024-01 and 2025-07→2026-09 after 4:06 PM; then an unchanged run on
+  2021-2023 (pre-decided in SWING_RULES.md section 10). The 2025-07+ holdout is not tested.
+- Phase 2, if ever: base breakouts (needs years of data), pullbacks to the 9 EMA / 20 SMA (needs his pullback class).
 
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
 - 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and
@@ -237,14 +278,20 @@ two-sided with spread ≤ 2%, else latest trade (< 5 min), else Yahoo 1-min bar.
   (Armando) and 20 of his marked charts. Hassan: defaults OK unless the course says otherwise. Real-data
   check changed 4 rules to fit Kunal's own trades (direction from the gap; yesterday's range only an
   option; daily ATR 2%; QQQ check only without a news gap). ORB stays fully separate from FPB.
+- 2026-10-14: Everything tested on the development year with rules fixed in advance shows NO edge after costs.
+  That covers ORB, FPB (live rules), Kunal's swing setups (3 variants), his big-picture filters and his daily
+  chart as the day-trade scanner (wide-stop version too). Nothing beats holding QQQ.
+  - Hassan's decision: **keep the project on the side** and test new strategy ideas as they come, with the
+    same tools.
+  - No real money in any strategy unless it beats costs AND holding QQQ on years it was never tuned on.
+  - The ORB/swing work was pushed to GitHub (branch `orb-rules` and `main`).
 
 ## Next Steps
-1. Review the first live sessions (from 2026-10-13): after each fill, Alpaca and the bot must
-   agree; stop orders must show in Alpaca's open orders. Fix anything the real broker does
-   differently from the fake one.
-2. Hassan: decide the stock list (open question 7) and the open strategy rules.
-3. Add Alpaca historical data loader; re-run FPB backtest on a large sample (200+ trades),
-   with slippage, on the right stocks; compare with/without the low-volume pullback rule.
-4. Split `fpb_paper_trader.py` into shared layers (see Architecture plan) before strategy #2.
-5. Build a "market weather" (regime) detector; test ORB and FPB per regime; build selector.
-6. Paper trade for months (150+ clean trades) before any real money.
+1. Results queued 2026-10-14 after the close:
+   - swing on 2021–2023 (incl. the swing-short slice check);
+   - the news version of the daily-scanner experiment.
+   If both fail, the day-trading edge hunt is over (agreed).
+2. New ideas: rules on paper first, pass mark fixed before testing, test year first, unseen years to confirm.
+   The tools (`alpaca_history.py`, `run_*_backtest.py`, `swing_strategy.py`) are ready for that.
+3. Paper bot: keep it running as a fill/slippage meter, or pause it (Hassan's choice; it is expected to lose).
+4. Older plans (selector, layer split, regime detector) are on hold until some strategy passes.

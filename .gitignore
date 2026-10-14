@@ -15,6 +15,12 @@ logs/runs/
 # Scanner results: rebuilt every morning, so not worth uploading
 output/
 
+# Backtest outputs: large, and rebuilt by the scripts (summaries are recorded in the .md files)
+logs/orb_trades/
+logs/fpb_backtest_alpaca/
+logs/swing_trades/
+logs/daily_scanner/
+
 # Python junk
 __pycache__/
 *.pyc
