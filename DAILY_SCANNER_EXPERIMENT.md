@@ -49,4 +49,19 @@
 - But the edge before costs shrank too. The extra profit came mostly from the tight stops cutting losers.
 - ORB's small plus comes from one month (April 2025, +31.8R); the other 11 months add up to about zero.
 
-**Version B (news only):** runs after tonight's downloads.
+**Version B (2026-10-14 evening): FAILS for both.**
+- Only stock-days with at least one Alpaca news headline between 4 PM the day before and 9:30 AM.
+- Headlines were found for 1,436 stock-days; 475 trades had news.
+- Output in `logs/daily_scanner/B_news_*`.
+
+| Entries (daily chart agreed + news) | Trades | Old exit, after costs | New exit, before / after costs | Months up |
+|---|---|---|---|---|
+| ORB | 301 | −0.09R | +0.05R / **+0.01R** | 8 of 12 |
+| FPB | 174 | −0.04R | +0.01R / **−0.04R** | 7 of 12 |
+
+- Version A was re-run on the same (longer) price history as B: unchanged, ORB +0.03R and FPB −0.05R after costs.
+
+## Conclusion
+- No version reaches the pass mark (+0.10R a trade after costs), so there's nothing to confirm on unseen years.
+- As agreed beforehand, **the hunt for a day-trading edge in Kunal's setups is over.**
+- The daily chart (+ news) does lift results before costs a little, but never by enough to pay the costs of trading.

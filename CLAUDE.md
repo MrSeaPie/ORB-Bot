@@ -171,8 +171,9 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   pass mark fixed before running; `run_daily_scanner_experiment.py`.
   - Same lead trades, but stop = 1 daily ATR and out at 3:55 PM.
   - Version A FAILS: ORB +0.03R net (5/12 months; one month carries it), FPB −0.05R net.
-  - Version B (only stocks with a news headline before the open, Alpaca news feed) queued after the 2026-10-14 downloads.
-  - If B also fails, stop hunting for a day-trading edge.
+  - Version B (only stocks with a news headline before the open, Alpaca news feed) FAILS too: ORB +0.01R net
+    (301 trades), FPB −0.04R net (174 trades).
+  - **The day-trading edge hunt is over (agreed rule).** Headlines are cached in `data_cache/news/headlines.csv`.
 - ORB is PARKED. The holdout was not run (nothing to confirm). Reusable from this work: the Alpaca
   history loader (years of data, parallel, cached), the stock finder and the backtest frame. They are
   the right tools to test FPB on a big sample (main Next Step 3).
@@ -197,8 +198,11 @@ Started because both intraday strategies lose mainly to costs. Swing trades are 
   - Original rules: 6,664 trades, −0.03R gross / −0.15R net; 5-position account −33% vs QQQ +14.5%.
   - Best variant, buy at the close on 2× volume: 253 trades, +0.01R net; account +5.7% (still far behind QQQ).
   - Costs are only 0.04–0.12R a trade here: the setups themselves don't pay.
-- Queued (2026-10-14): download 2020-01→2024-01 and 2025-07→2026-09 after 4:06 PM; then an unchanged run on
-  2021-2023 (pre-decided in SWING_RULES.md section 10). The 2025-07+ holdout is not tested.
+- **2021–2023 check (unchanged settings, pre-decided): NO EDGE.**
+  - Original rules: 18,662 trades, −0.20R net; account −45% vs QQQ +32%.
+  - Buy at the close on 2× volume: 531 trades, −0.13R net; account −9%.
+  - The development year's good short slice lost −0.27R. Swing setups are closed as a strategy.
+  - Daily candles 2020-01 → 2026-09 are now cached (the 2025-07+ holdout is downloaded but untested).
 - Phase 2, if ever: base breakouts (needs years of data), pullbacks to the 9 EMA / 20 SMA (needs his pullback class).
 
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
@@ -287,10 +291,7 @@ two-sided with spread ≤ 2%, else latest trade (< 5 min), else Yahoo 1-min bar.
   - The ORB/swing work was pushed to GitHub (branch `orb-rules` and `main`).
 
 ## Next Steps
-1. Results queued 2026-10-14 after the close:
-   - swing on 2021–2023 (incl. the swing-short slice check);
-   - the news version of the daily-scanner experiment.
-   If both fail, the day-trading edge hunt is over (agreed).
+1. Done 2026-10-14: the swing 2021–2023 check and the news version both failed, so the day-trading edge hunt is over.
 2. New ideas: rules on paper first, pass mark fixed before testing, test year first, unseen years to confirm.
    The tools (`alpaca_history.py`, `run_*_backtest.py`, `swing_strategy.py`) are ready for that.
 3. Paper bot: keep it running as a fill/slippage meter, or pause it (Hassan's choice; it is expected to lose).

@@ -231,6 +231,19 @@ Also true of every breakout **[Kunal 74, 77, 78]**:
 - In the original rules, most trades end at the 9 EMA stop within about 5 days; only about 1 in 8 reaches 3R.
 - Output files: `logs/swing_trades/dev_v2_*` (kept on the PC only).
 
+**Extra out-of-sample check, 2021–2023 (decided before running, settings unchanged): NO EDGE either.**
+
+| Version | Trades | Per trade before / after costs | Months up | 5-position account | Holding QQQ |
+|---|---|---|---|---|---|
+| Original rules | 18,662 | −0.08R / −0.20R | 4 of 36 | −45% (worst drop 56%) | +32% |
+| Buy at the close on 2× volume | 531 | −0.08R / −0.13R | 12 of 36 | −9% (worst drop 37%) | +32% |
+
+- The short slice that looked good in the development year (+0.26R) lost **−0.27R** here (200 trades, 5 of 22
+  months up), even through the 2022 crash. It was luck.
+- One small slice was positive (flag + flat top together, 124 trades, +0.12R). That was noticed after looking
+  and is exactly the kind of result we don't chase.
+- Output files: `logs/swing_trades/early_2021-2023_*`. The swing setups are closed as a strategy.
+
 ## 9. Open questions for Hassan
 1. Half at **3R** (his class 77 words) or 2R?
 2. Keep the **$5** minimum (his scan) although some of his examples are under $5?
