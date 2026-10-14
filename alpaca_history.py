@@ -315,43 +315,56 @@ def get_daily_many(symbols, start: date, end: date, feed="sip", allow_market_hou
 
 
 MORNING = (time(9, 30), time(11, 35))   # ORB trades are over by 11:30
+SESSION = (time(9, 30), time(16, 0))    # FPB holds until 3:55 PM
+_WINDOW_FOLDERS = {MORNING: "1Min_morning", SESSION: "1Min_session"}
 
 
-def _morning_path(symbol, day: date) -> Path:
+def _minutes_path(symbol, day: date, window=MORNING) -> Path:
     symbol = symbol.upper()
-    folder = CACHE_DIR / "1Min_morning" / (symbol + "_" if symbol.split(".")[0] in WINDOWS_RESERVED else symbol)
+    folder = CACHE_DIR / _WINDOW_FOLDERS[window] / (symbol + "_" if symbol.split(".")[0] in WINDOWS_RESERVED else symbol)
     return folder / f"{day:%Y-%m-%d}.csv.gz"
 
 
-def get_morning_minutes(symbol: str, day: date, feed="sip", allow_market_hours=False) -> pd.DataFrame:
+def get_minutes(symbol: str, day: date, window=MORNING, feed="sip", allow_market_hours=False) -> pd.DataFrame:
     """
-    1-minute candles from 9:30 to 11:35 New York time on one day: all a backtested ORB trade needs.
+    1-minute candles of one day between the two times of `window` (New York time): MORNING
+    (9:30-11:35, enough for an ORB trade) or SESSION (9:30-4:00, for FPB, which holds to 3:55).
     One small request per stock-day instead of a month of 1-minute candles. Saved per day.
     """
-    path = _morning_path(symbol, day)
+    path = _minutes_path(symbol, day, window)
     if path.exists():
         return _read(path)
     check_download_allowed(allow_market_hours)
-    start, end = (datetime.combine(day, t, tzinfo=ET) for t in MORNING)
+    start, end = (datetime.combine(day, t, tzinfo=ET) for t in window)
     df = _download(symbol.upper(), "1Min", start, end, feed)
     df.index.name = "timestamp"
-    if end < datetime.now(ET) - timedelta(minutes=20):          # only a finished morning is saved
+    if end < datetime.now(ET) - timedelta(minutes=20):          # only a finished window is saved
         path.parent.mkdir(parents=True, exist_ok=True)
         _ignore_cache_folder()
         df.to_csv(path, compression="gzip")
     return df
 
 
+def get_morning_minutes(symbol: str, day: date, feed="sip", allow_market_hours=False) -> pd.DataFrame:
+    """1-minute candles from 9:30 to 11:35 on one day (see get_minutes)."""
+    return get_minutes(symbol, day, MORNING, feed, allow_market_hours)
+
+
 def prefetch_mornings(symbol_days, allow_market_hours=False, progress=None):
     """get_morning_minutes() for many (symbol, date) pairs, several at once. Returns (downloaded, failed)."""
-    todo = sorted({(s.upper(), d) for s, d in symbol_days if not _morning_path(s, d).exists()})
+    return prefetch_minutes(symbol_days, MORNING, allow_market_hours, progress)
+
+
+def prefetch_minutes(symbol_days, window=MORNING, allow_market_hours=False, progress=None):
+    """get_minutes() for many (symbol, date) pairs, several at once. Returns (downloaded, failed)."""
+    todo = sorted({(s.upper(), d) for s, d in symbol_days if not _minutes_path(s, d, window).exists()})
     if not todo:
         return 0, 0
     check_download_allowed(allow_market_hours)
 
     def one(item):
         try:
-            get_morning_minutes(*item, allow_market_hours=allow_market_hours)
+            get_minutes(*item, window=window, allow_market_hours=allow_market_hours)
             return True
         except MarketHoursError:
             raise
