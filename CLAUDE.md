@@ -122,12 +122,17 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   - But clear gradients: more pre-market volume, more first-15-minute volume and a bigger daily ATR
     are better. 1M+ pre-market shares: +0.17R.
   - One month only, so nothing was chosen from it.
-  - The development year (2024-07 → 2025-06) was started the evening of 2026-10-13 →
-    `logs/orb_trades/dev_2024-07_2025-06_*`.
-- Next: (1) read the development-year breakdown and choose the stock ranking/filters there only. (2) Run
-  the holdout (2025-07 → 2026-09) with that ranking and a realistic top-N per day. (3) Only if it holds
-  up: a second Alpaca paper account + its own schedule. Open questions: #7 go-to stocks, #9 where chart
-  CRK came from.
+  - **Development year 2024-07 → 2025-06 (run overnight 2026-10-13/14, ~3.3 h, keep-awake on): NO EDGE.**
+    18,636 trades, −0.04R before slippage, −0.28R after, no month positive. Every course-motivated
+    slice is negative after slippage; the best (the busiest stock each morning) is about break-even.
+    Details: ORB_RULES.md section 12, `logs/orb_trades/dev_2024-07_2025-06_*`.
+- ORB is PARKED. The holdout was not run (nothing to confirm). Reusable from this work: the Alpaca
+  history loader (years of data, parallel, cached), the stock finder and the backtest frame. They are
+  the right tools to test FPB on a big sample (main Next Step 3).
+- If ORB is revisited: write one specific idea down first (e.g. wait for a 5-min close past the line,
+  shelf-low stop, trade only with QQQ's 50-day trend), test it on the development year only, and run
+  the holdout only if it shows a clear edge after slippage.
+  Open questions: #7 go-to stocks, #9 where chart CRK came from.
 
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
 - 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and

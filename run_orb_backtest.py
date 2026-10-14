@@ -76,7 +76,8 @@ def signal_for(c, day: date, qqq: pd.DataFrame, shortable: set, rules: OrbSettin
     premarket = extended[extended.index < five.index[0]].volume.sum()
     row.update(price=round(five.open.iloc[0], 2), dollar_volume_m=round(normal_volume * five.open.iloc[0] / 1e6, 1),
                premarket_volume=int(premarket), premarket_ratio=round(premarket / normal_volume, 4),
-               early_volume_ratio=round(five.volume.iloc[:3].sum() / normal_volume, 4))
+               # first 10 minutes (candles 1-2): known by 9:40, the earliest entry, so no peeking ahead
+               early_volume_ratio=round(five.volume.iloc[:2].sum() / normal_volume, 4))
     ctx = DayContext(prev_close=c.prev_close * scale, prev_high=c.prev_high * scale,
                      prev_low=c.prev_low * scale, atr_pct=c.atr_pct, qqq=qqq)
     sig = find_orb(five, ctx, rules)
@@ -230,7 +231,7 @@ def summarize(decisions, trades, start, end, finder, stopped=""):
         out += _buckets(dev, "premarket_volume", [-1, 50_000, 200_000, 1_000_000, 1e12],
                         ["under 50k", "50k-200k", "200k-1M", "1M+"], "Pre-market volume (shares; Kunal: 50k+)")
         out += _buckets(dev, "early_volume_ratio", [-1, 0.05, 0.10, 0.20, 1e9],
-                        ["under 5%", "5-10%", "10-20%", "20%+"], "First 15 minutes' volume vs a normal day")
+                        ["under 5%", "5-10%", "10-20%", "20%+"], "First 10 minutes' volume vs a normal day")
         out += _buckets(dev, "atr_pct", [0, 3, 5, 8, 1e9], ["2-3%", "3-5%", "5-8%", "8%+"], "Daily range (ATR)")
     skipped = decisions[decisions.status == "skip"].reasons.str.split("; ").explode()
     if len(skipped):
@@ -244,7 +245,24 @@ def summarize(decisions, trades, start, end, finder, stopped=""):
     return "\n".join(out) + "\n"
 
 
+def keep_pc_awake(on: bool) -> bool:
+    """
+    Ask Windows not to idle-sleep while the backtest runs (same request as the FPB bot; the screen
+    can still turn off). Ends by itself when the script exits. Returns True if Windows agreed.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0)
+        return ctypes.windll.kernel32.SetThreadExecutionState(flags) != 0
+    except Exception:
+        return False
+
+
 def main():
+    keep_pc_awake(True)
     parser = argparse.ArgumentParser(description="ORB backtest (see the notes at the top of this file)")
     parser.add_argument("--start", default="2024-01-02")
     parser.add_argument("--end", default="2026-09-30")

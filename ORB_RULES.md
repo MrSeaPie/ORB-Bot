@@ -356,6 +356,8 @@ probably need its own stock list. The backtest starts with the stocks in section
      - results are in R per trade, ignoring how many trades the account could hold at once
    - Output: `logs/orb_trades/<label>_summary.txt`, `_trades.csv` and `_decisions.csv` (every
      listed stock, with the reason for each skip).
+   - **Result (2026-10-14): no edge** on the development year. See section 12. Steps 5–6 are on
+     hold.
 5. **Only if the backtest holds up:** paper trade ORB in its own account and schedule, next to FPB.
 6. **Judge ORB on its own** after 150+ paper trades. Only then can it join the strategy selector.
 
@@ -480,6 +482,31 @@ entries land within cents of his drawn lines (e.g. PI 149.22, TKR 74.63). Honest
   The development period will show which kinds of stocks ORB works on. That becomes the ranking,
   and the holdout period checks it. Gappers now need 500k+ shares a day (not 1M), and every candidate
   needs a daily ATR of 2%+.
+
+**2026-10-14: development year (July 2024 – June 2025), every candidate traded.** 50,049
+stock-days were on the morning lists, giving 18,636 trades.
+- **Result:** 33% winners, **−0.04R a trade before slippage, −0.28R after** (−5,232R in total, and no
+  single month made money). Longs −0.35R, shorts −0.20R after slippage.
+- **Every course-motivated slice still loses after slippage:**
+  - 1M+ pre-market shares and a busy first 15 minutes: −0.22R
+  - news gappers of 10%+: −0.14R
+  - gap-down shorts: −0.16R (+0.06R before slippage)
+  - wider stops lose less (slippage costs less per R), but are still negative
+
+  The May pattern (more "in play" = better) mostly faded over the full year.
+- Only 10.6% of trades reached 3R; 55.6% hit the stop.
+- **Best slice:** the single busiest stock each morning, ranked by early volume. +0.03R a trade (250
+  trades, 6 of 12 months up), i.e. break-even. And that measure peeked at the 9:40–9:45 candle, which
+  a 9:40 entry can't know yet. Fixed afterwards: it now uses only the first 10 minutes.
+- **Conclusion:** as a mechanical bot, these ORB rules show no edge even before trading costs, and
+  they lose after costs.
+  - Kunal's 19 winners prove the bot recognises the pattern, but taking every such pattern doesn't
+    pay.
+  - What the rules can't copy is his discretion: choosing a few stocks by chart quality and
+    context, and selling into spikes by feel.
+  - Survivorship bias makes real results slightly *worse* than these.
+- **Holdout not run:** there is no rule worth confirming. ORB is parked unless a new, specific idea
+  (written down before testing) is worth one more development-year check.
 
 ## 13. Kunal's 20 marked charts
 
