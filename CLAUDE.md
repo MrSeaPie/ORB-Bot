@@ -126,6 +126,17 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
     18,636 trades, −0.04R before slippage, −0.28R after, no month positive. Every course-motivated
     slice is negative after slippage; the best (the busiest stock each morning) is about break-even.
     Details: ORB_RULES.md section 12, `logs/orb_trades/dev_2024-07_2025-06_*`.
+- **FPB backtest with the same tools (2026-10-14): `run_fpb_backtest_alpaca.py`.**
+  - It tests the LIVE rules unchanged: entries call fpb_strategy.py; exits copy fpb_paper_trader.py
+    (half at 1.5R, stop to entry, 9 EMA trailing stop, the rest at 3R or 3:55 PM), minute by minute.
+  - Development year 2024-07 → 2025-06, every gapper within the FPB scanner's limits: **11,382 trades,
+    −0.09R before slippage, −0.45R after, no month positive.**
+  - Live-like slices: universe.txt stocks −0.37R (624 trades); first 3 entries a day −0.26R net
+    (+0.02R gross).
+  - Every bucket is negative after slippage; stops under 0.5% lost −1.01R a trade.
+  - Output: `logs/fpb_backtest_alpaca/dev_2024-07_2025-06_*`. Tests: `tests/test_fpb_backtest.py` (9 checks).
+  - Conclusion: as coded, FPB has no edge either. The live paper bot is expected to lose about
+    0.3–0.45R a trade. It's paper money only; useful now mainly to measure real fills and slippage.
 - ORB is PARKED. The holdout was not run (nothing to confirm). Reusable from this work: the Alpaca
   history loader (years of data, parallel, cached), the stock finder and the backtest frame. They are
   the right tools to test FPB on a big sample (main Next Step 3).
