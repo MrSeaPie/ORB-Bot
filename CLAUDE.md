@@ -92,6 +92,29 @@ do not use a chatbot as the live trading brain — the bot runs on testable rule
 - Two strategies trading live at once → one Alpaca paper account per strategy (own keys, own
   scheduled task) so results and BrokerSync never mix. Requires the plug-in split first.
 
+## ORB workstream (separate strategy; folder `C:\Users\Hassan\ORB-Bot-orb`, branch `orb-rules`)
+Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git worktree beside the live folder.
+- `ORB_RULES.md`: the rules in plain words, each tagged [Kunal class] / [Armando] / [Proposed] /
+  [Project]. Defaults confirmed by Hassan 2026-10-13 ("if nothing in the course says otherwise").
+  Section 12 = what changed and why; section 13 = Kunal's 20 marked charts.
+- `alpaca_history.py`: Alpaca price history (SIP, raw prices, NY time), cached per stock per month in
+  git-ignored `data_cache/`. Refuses to download 9:15 AM–4:05 PM ET on weekdays (the live bot shares
+  the keys and Alpaca's request limit). The ORB folder has its own git-ignored copy of `.env`.
+- `orb_strategy.py`: rules as pure functions (`find_orb`, `simulate_trade`, `day_context`).
+- `check_kunal_examples.py`: runs the rules on Kunal's 19 ORB charts with real data →
+  `logs/orb_checks/kunal_examples.csv`. 2026-10-13: 19/19 found at his candle, 19/19 pass filters
+  (recognition only: they are hand-picked winners).
+- `tests/test_orb_strategy.py`: 45 offline checks. Run after every ORB change.
+- Course material for ORB lives in the ORB folder's `private/` (git-ignored): 20 chart screenshots in
+  `private/charts/orb_kunal_examples/`. The transcripts are on Hassan's Desktop (`TRANSCRIPTS\ORB\`,
+  `whisper\Release\` for the scanning classes); `private/transcripts/orb/` in the live folder is empty.
+- Run with the live folder's Python: `C:\Users\Hassan\ORB-Bot\.venv\Scripts\python.exe -X utf8 <file>`.
+- Next: (1) the backtest, `run_orb_backtest.py`. It needs ORB's own stock list (section 3b: gappers,
+  yesterday's movers, a rule-built go-to list) and slippage. It should log every skip reason, choose
+  options on older data and confirm on newer data, and note the survivorship bias. (2) If it holds up:
+  a second Alpaca paper account + its own schedule. Open questions: #7 go-to stocks, #9 where chart CRK
+  came from.
+
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
 - 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and
   ARM -$22.38 (stopped out < 1 min after entry), RIOT -$70.38 (stop), SMCI +$36.03 (R1, then
@@ -164,6 +187,11 @@ two-sided with spread ≤ 2%, else latest trade (< 5 min), else Yahoo 1-min bar.
   FPB v2/v3 logs. Snapshot commit `ac3d2db` holds the pre-cleanup state.
 - 2026-10-12: User wants shorts on and asked to fix all bugs. Stay on Alpaca for paper testing;
   decide the broker (and paid real-time data) before real money.
+
+- 2026-10-13: ORB rules written from Kunal's 6 ORB classes, his 2 scanning classes, 2 guest webinars
+  (Armando) and 20 of his marked charts. Hassan: defaults OK unless the course says otherwise. Real-data
+  check changed 4 rules to fit Kunal's own trades (direction from the gap; yesterday's range only an
+  option; daily ATR 2%; QQQ check only without a news gap). ORB stays fully separate from FPB.
 
 ## Next Steps
 1. Review the first live sessions (from 2026-10-13): after each fill, Alpaca and the bot must
