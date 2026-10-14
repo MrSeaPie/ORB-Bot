@@ -109,11 +109,25 @@ Never touches FPB files, the FPB scanner or `universe.txt`. Built in a git workt
   `private/charts/orb_kunal_examples/`. The transcripts are on Hassan's Desktop (`TRANSCRIPTS\ORB\`,
   `whisper\Release\` for the scanning classes); `private/transcripts/orb/` in the live folder is empty.
 - Run with the live folder's Python: `C:\Users\Hassan\ORB-Bot\.venv\Scripts\python.exe -X utf8 <file>`.
-- Next: (1) the backtest, `run_orb_backtest.py`. It needs ORB's own stock list (section 3b: gappers,
-  yesterday's movers, a rule-built go-to list) and slippage. It should log every skip reason, choose
-  options on older data and confirm on newer data, and note the survivorship bias. (2) If it holds up:
-  a second Alpaca paper account + its own schedule. Open questions: #7 go-to stocks, #9 where chart CRK
-  came from.
+- `orb_stock_finder.py`: ORB's own morning list from daily candles of ~13,200 stocks (gappers,
+  yesterday's movers, go-to). Research mode by default: every candidate, no top-N cut.
+- `run_orb_backtest.py`: month by month; 5-min candles per stock-month + 1-min "mornings" (9:30–11:35)
+  per trade, fetched in parallel (6 threads, one shared limiter ~170 requests/min). Writes
+  `logs/orb_trades/<label>_summary.txt / _trades.csv / _decisions.csv` (git-ignored outputs, not committed).
+  Development period up to 2025-06 (choose options here); holdout 2025-07 on (confirm only).
+- Results so far (2026-10-13):
+  - May 2025 pilot, top 10 by gap: about break-even, and none of Kunal's May stocks made the list.
+  - May 2025 research mode, all 1,546 candidates traded: −0.29R a trade after slippage (most
+    breakouts fail; slippage ≈ 0.24R a trade with ~1.75% stops).
+  - But clear gradients: more pre-market volume, more first-15-minute volume and a bigger daily ATR
+    are better. 1M+ pre-market shares: +0.17R.
+  - One month only, so nothing was chosen from it.
+  - The development year (2024-07 → 2025-06) was started the evening of 2026-10-13 →
+    `logs/orb_trades/dev_2024-07_2025-06_*`.
+- Next: (1) read the development-year breakdown and choose the stock ranking/filters there only. (2) Run
+  the holdout (2025-07 → 2026-09) with that ranking and a realistic top-N per day. (3) Only if it holds
+  up: a second Alpaca paper account + its own schedule. Open questions: #7 go-to stocks, #9 where chart
+  CRK came from.
 
 ## Paper-trading journal (one line per session; judge the strategy only after 150+ trades)
 - 2026-10-13 (day 1): 4 trades, all SHORT (watchlist was mostly gap-downs): DELL -$15.30 and

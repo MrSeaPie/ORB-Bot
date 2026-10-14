@@ -75,6 +75,28 @@ class TradeResult:
     r: float                        # result in R
 
 
+@dataclass
+class Slippage:
+    """
+    How much worse than the chart price real fills are, per share: a % of the price plus a cent.
+    [Proposed] estimates. FPB's first paper day had stop fills $0.35-0.48 worse, so stops get the
+    most. The 3R sale is a limit order, so it gets none. Backtest reports also show double slippage.
+    """
+    entry_pct: float = 0.05             # the entry is a stop order: it fills a little past the line
+    stop_pct: float = 0.20              # stop orders in a fast move
+    market_pct: float = 0.05            # 9 EMA and 11:30 exits (market orders)
+    cents: float = 0.01
+
+    def r(self, sig: "OrbSignal", result: "TradeResult", times=1.0) -> float:
+        """Total slippage of one trade in R (subtract from the result)."""
+        cost = sig.entry * self.entry_pct / 100 + self.cents
+        for _, price, fraction, why in result.exits:
+            if "target" not in why:
+                pct = self.stop_pct if "stop" in why else self.market_pct
+                cost += fraction * (price * pct / 100 + self.cents)
+        return cost * times / sig.risk
+
+
 def vwap(candles: pd.DataFrame) -> pd.Series:
     """VWAP after each candle, counted from the first candle given (pass one day's candles)."""
     typical = (candles.high + candles.low + candles.close) / 3

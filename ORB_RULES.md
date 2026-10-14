@@ -336,6 +336,26 @@ probably need its own stock list. The backtest starts with the stocks in section
 4. **Backtest ORB alone:** at least 200 trades, with slippage, on the right kind of stocks. Every
    skipped setup is logged with the reason. Choose between the options (stop, exits, candle-2 rule)
    on older data, then check the winner on newer data the test never saw, so it doesn't fool us.
+   Built 2026-10-13: `run_orb_backtest.py` + `orb_stock_finder.py`. How it works:
+   - **Stocks:** every active US stock and ETF on Alpaca's list (about 13,200). Each morning, ORB's
+     own finder (section 3b) picks up to 10 using only what was known before the open. Results are
+     also shown for the top 6 alone (Kunal watches 4–6).
+   - **Each listed stock:** the ORB rules run on its 5-minute candles. A trade is then played
+     minute by minute on 1-minute candles (stop before target within a minute, the cautious choice).
+     Gainers and uptrending go-to stocks are long only; losers and downtrending ones short only.
+     Shorts need a stock Alpaca allows shorting.
+   - **Periods:** 2024-01 to 2026-09. "Development" = up to 2025-06 (options may be chosen here);
+     "holdout" = 2025-07 on (only to confirm).
+   - **Slippage** (my estimates): entry 0.05% + 1¢, stop exits 0.2% + 1¢, market exits 0.05% + 1¢,
+     the 3R limit sale none. The report also shows double slippage.
+   - **Known limits:**
+     - stocks that no longer exist are missing (survivorship bias)
+     - pre-market volume isn't checked
+     - "can be shorted" uses today's list
+     - the 9 EMA starts from yesterday's close
+     - results are in R per trade, ignoring how many trades the account could hold at once
+   - Output: `logs/orb_trades/<label>_summary.txt`, `_trades.csv` and `_decisions.csv` (every
+     listed stock, with the reason for each skip).
 5. **Only if the backtest holds up:** paper trade ORB in its own account and schedule, next to FPB.
 6. **Judge ORB on its own** after 150+ paper trades. Only then can it join the strategy selector.
 
@@ -438,6 +458,28 @@ entries land within cents of his drawn lines (e.g. PI 149.22, TKR 74.63). Honest
   most breakouts fail, decides whether they stay.
 - The "+3.1R average" on these 19 means nothing: they are winners he picked, and slippage isn't
   counted yet.
+
+**2026-10-13: first backtest pilot (May 2025, top 10 of each morning list by gap size).**
+- Result: 74 trades, +0.04R each after slippage (about break-even; −4.2R in total with double slippage).
+  Longs +13.6R, shorts −10.8R. One month is far too little to judge.
+- The real lesson was the stock finder:
+  - About 90 liquid stocks gap 3%+ on a normal day (160 on May 27, 2025). A top 10 by gap size
+    fills up with tiny pump stocks.
+  - **None of Kunal's six May stocks made the list.** RDW, SOUN and RKLB were gappers but ranked
+    28th–56th by gap size. TSSI was cut by the 1M-share average (948k), though Kunal judges gappers
+    by pre-market volume. BBAI was under the $5 gapper minimum. TEM was one of yesterday's movers,
+    but the list was already full.
+  - The 6 biggest gaps each morning did worse (−6.3R) than ranks 7–10 (+9.1R).
+- Changed: the finder is now wide ("research mode"). Every candidate is tested, and the backtest
+  records what each stock was like:
+  - pre-market volume (Kunal's real gapper test)
+  - first-15-minute volume (Armando's sign)
+  - price and dollar liquidity
+  - gap size and daily range
+
+  The development period will show which kinds of stocks ORB works on. That becomes the ranking,
+  and the holdout period checks it. Gappers now need 500k+ shares a day (not 1M), and every candidate
+  needs a daily ATR of 2%+.
 
 ## 13. Kunal's 20 marked charts
 

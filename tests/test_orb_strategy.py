@@ -8,6 +8,8 @@ to orb_strategy.py or alpaca_history.py:
 Sections: signal, filters, exits, data.
 The rules being tested are in ORB_RULES.md.
 """
+import contextlib
+import io
 import sys
 import tempfile
 from datetime import date, datetime
@@ -230,6 +232,115 @@ if section("Price-history downloader (no internet: Alpaca is faked)", "data"):
               not (hist.CACHE_DIR / "5Min" / "NOW" / f"{today:%Y-%m}.csv.gz").exists())
         rth = hist.regular_hours(first)
         check("regular_hours() keeps 9:30-4:00 only", len(rth) == 3 and rth.index[0].strftime("%H:%M") == "09:30")
+    finally:
+        hist._download, hist.CACHE_DIR = real_download, real_cache
+
+
+if section("Stock finder: who gets on the morning list", "finder"):
+    import numpy as np
+    import orb_stock_finder as finder
+
+    def daily_rows(symbol, closes, volumes, last_open=None, range_pct=0.0):
+        closes, volumes = np.asarray(closes, float), np.asarray(volumes, float)
+        opens = np.r_[closes[0], closes[:-1]]                       # opens at yesterday's close...
+        if last_open is not None:
+            opens[-1] = last_open                                   # ...except the last day (a gap)
+        dates = pd.bdate_range("2025-01-02", periods=len(closes)).strftime("%Y-%m-%d")
+        return pd.DataFrame({"symbol": symbol, "date": dates, "open": opens, "close": closes, "volume": volumes,
+                             "high": np.maximum(opens, closes) * (1 + range_pct), "low": np.minimum(opens, closes) * (1 - range_pct)})
+
+    n = 60
+    flat = [50.0] * n
+    wiggle = 0.015                                                                # daily range about 3%
+    stocks = pd.concat([
+        daily_rows("GAPUP", flat, [2e6] * n, last_open=53.0, range_pct=wiggle),            # +6% gap
+        daily_rows("GAPDN", [20.0] * n, [2e6] * n, last_open=18.4, range_pct=wiggle),      # -8% gap
+        daily_rows("NEWS", flat, [7e5] * n, last_open=52.0, range_pct=wiggle),             # +4% gap on a quieter stock
+        daily_rows("THIN", flat, [3e5] * n, last_open=55.0, range_pct=wiggle),             # gaps, only 300k shares a day
+        daily_rows("CHEAP", [4.0] * n, [5e6] * n, last_open=4.4, range_pct=wiggle),        # +10% gap but under $5
+        daily_rows("SLEEPY", flat, [5e6] * n, last_open=53.0, range_pct=0.002),            # gaps but moves ~0.4% a day
+        daily_rows("MOVER", [30.0] * (n - 2) + [31.5, 31.5], [1.5e6] * (n - 2) + [5e6, 2e6], range_pct=wiggle),
+        daily_rows("TREND", list(np.linspace(20, 40, n)), [3e6] * n, range_pct=wiggle),    # steady uptrend
+    ])
+    features = finder.daily_features(stocks)
+    last = features[features.date == features.date.max()]
+    morning = finder.candidates_for_day(last)
+    check("list order: gappers (biggest first), movers, go-to",
+          morning.symbol.tolist() == ["GAPDN", "GAPUP", "NEWS", "MOVER", "TREND"], morning.symbol.tolist())
+    check("sources and sides", morning.source.tolist() == ["gapper", "gapper", "gapper", "mover", "go-to"]
+          and morning.side.tolist() == ["", "", "", "long", "long"], (morning.source.tolist(), morning.side.tolist()))
+    check("a gapper trading 700k shares a day is in (judged by pre-market volume later)", "NEWS" in set(morning.symbol))
+    check("thin, under-$5 and barely-moving stocks are left out", not {"THIN", "CHEAP", "SLEEPY"} & set(morning.symbol))
+    mover = last.set_index("symbol").loc["MOVER"]
+    check("yesterday's move and relative volume use only earlier days",
+          abs(mover.move_pct - 5.0) < 1e-9 and abs(mover.rel_volume - 5e6 / 1.5e6) < 1e-9, (mover.move_pct, mover.rel_volume))
+    check("gap uses today's open vs yesterday's close", abs(last.set_index("symbol").loc["GAPUP"].gap_pct - 6.0) < 1e-9)
+    check("per_day limits the list", finder.candidates_for_day(last, finder.FinderSettings(per_day=2)).symbol.tolist()
+          == ["GAPDN", "GAPUP"])
+    check("ranks count from 1", morning["rank"].tolist() == [1, 2, 3, 4, 5])
+
+
+if section("Slippage in R", "costs"):
+    sig = orb.OrbSignal("trade", "long", entry=50.0, stop=49.0)
+    t = pd.Timestamp("2025-05-27 10:00", tz=ET)
+    won = orb.TradeResult(exits=[(t, 53.0, 0.5, "3R target"), (t, 52.0, 0.5, "closed past the 9 EMA")], r=2.5)
+    lost = orb.TradeResult(exits=[(t, 49.0, 1.0, "stop")], r=-1.0)
+    costs = orb.Slippage()
+    check("limit (3R) sale has no slippage; entry and market exit do",
+          abs(costs.r(sig, won) - (50 * 0.0005 + 0.01 + 0.5 * (52 * 0.0005 + 0.01))) < 1e-9, costs.r(sig, won))
+    check("stop exits slip the most", abs(costs.r(sig, lost) - (50 * 0.0005 + 0.01 + 49 * 0.002 + 0.01)) < 1e-9, costs.r(sig, lost))
+    check("double slippage doubles it", abs(costs.r(sig, lost, times=2) - 2 * costs.r(sig, lost)) < 1e-12)
+
+
+if section("Daily candles for many stocks (no internet: Alpaca is faked)", "data"):
+    asked = []
+
+    def fake_daily_many(symbols, start, end, feed):
+        asked.append(list(symbols))
+        days = pd.bdate_range(start.date(), end.date() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        good = [s for s in symbols if s != "BAD"]
+        rows = [{"symbol": s, "date": d, "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}
+                for s in good for d in days]
+        return pd.DataFrame(rows), [s for s in symbols if s == "BAD"]
+
+    real_many, real_cache = hist._download_daily_many, hist.CACHE_DIR
+    hist._download_daily_many, hist.CACHE_DIR = fake_daily_many, Path(tempfile.mkdtemp()) / "data_cache"
+    try:
+        got = hist.get_daily_many(["aaa", "BBB"], date(2025, 3, 3), date(2025, 3, 7), allow_market_hours=True)
+        hist.get_daily_many(["AAA", "BBB"], date(2025, 3, 3), date(2025, 3, 7), allow_market_hours=True)
+        hist.get_daily_many(["AAA", "CCC"], date(2025, 3, 3), date(2025, 3, 7), allow_market_hours=True)
+        check("only stocks not yet saved are downloaded", asked == [["AAA", "BBB"], ["CCC"]], asked)
+        check("dates and stocks come back as asked", len(got) == 10 and got.date.min() == "2025-03-03"
+              and got.date.max() == "2025-03-07" and got.symbol.tolist()[:2] == ["AAA", "AAA"], (len(got), got.date.min()))
+        with contextlib.redirect_stdout(io.StringIO()):
+            hist.get_daily_many(["BAD"], date(2025, 3, 3), date(2025, 3, 7), allow_market_hours=True)
+            hist.get_daily_many(["BAD"], date(2025, 3, 3), date(2025, 3, 7), allow_market_hours=True)
+        check("a failed download isn't marked as saved: it is tried again", asked[-2:] == [["BAD"], ["BAD"]], asked)
+    finally:
+        hist._download_daily_many, hist.CACHE_DIR = real_many, real_cache
+
+    fetched = []
+
+    def fake_download(symbol, timeframe, start, end, feed):
+        fetched.append((symbol, f"{start:%Y-%m}"))
+        return pd.DataFrame(columns=COLS, index=pd.DatetimeIndex([], tz=ET), dtype=float)
+
+    real_download = hist._download
+    hist._download, hist.CACHE_DIR = fake_download, Path(tempfile.mkdtemp()) / "data_cache"
+    try:
+        pairs = [("XX", date(2025, 3, 3)), ("XX", date(2025, 3, 20)), ("YY", date(2025, 4, 1)), ("xx", date(2025, 4, 2))]
+        count, failed = hist.prefetch(pairs, allow_market_hours=True)
+        again = hist.prefetch(pairs, allow_market_hours=True)
+        check("prefetch downloads each stock-month once", count == 3 and failed == 0 and sorted(fetched)
+              == [("XX", "2025-03"), ("XX", "2025-04"), ("YY", "2025-04")], (count, fetched))
+        check("... and skips saved months next time", again == (0, 0), again)
+
+        fetched.clear()
+        morning = [("XX", date(2025, 3, 3)), ("XX", date(2025, 3, 4)), ("xx", date(2025, 3, 3))]
+        count, failed = hist.prefetch_mornings(morning, allow_market_hours=True)
+        hist.get_morning_minutes("XX", date(2025, 3, 3), allow_market_hours=True)
+        check("1-minute mornings: one download per stock-day, then read from disk", count == 2 and len(fetched) == 2,
+              (count, fetched))
     finally:
         hist._download, hist.CACHE_DIR = real_download, real_cache
 
